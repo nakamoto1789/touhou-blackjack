@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7d1a22">
+  <meta name="format-detection" content="telephone=no">
+  <title>東方人気投票ブラックジャック（非公式ファンゲーム）</title>
+  <meta name="description" content="第22回東方Project人気投票の順位を点数にして、150を超えずに150を目指す、2〜5人用の非公式ファンゲームです。">
+  <!-- タブに出る小さなアイコン（下の陰陽玉マークと同じ図形を、画像ファイルなしで指定している） -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='47' fill='%23fff' stroke='%237d1a22' stroke-width='5'/%3E%3Cpath d='M50 3A47 47 0 0 1 50 97A23.5 23.5 0 0 0 50 50A23.5 23.5 0 0 1 50 3Z' fill='%23b3202a'/%3E%3Ccircle cx='50' cy='26.5' r='7' fill='%23fff'/%3E%3Ccircle cx='50' cy='73.5' r='7' fill='%23b3202a'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+  <!-- 画面の一番上に出るお知らせ -->
+  <div id="banner-demo" class="banner banner-demo" hidden>
+    お試しモード：このブラウザの<strong>別のタブ</strong>同士でだけ遊べます
+  </div>
+  <div id="banner-offline" class="banner banner-offline" hidden>
+    通信が切れています。再接続しています…
+  </div>
+
+  <main id="app">
+
+    <!-- ========== 0. 読み込み中 ========== -->
+    <section id="screen-loading" class="screen active">
+      <div class="loading">
+        <svg class="yinyang" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="47" fill="#fff" stroke="#7d1a22" stroke-width="5"/>
+          <path d="M50 3A47 47 0 0 1 50 97A23.5 23.5 0 0 0 50 50A23.5 23.5 0 0 1 50 3Z" fill="#b3202a"/>
+          <circle cx="50" cy="26.5" r="7" fill="#fff"/>
+          <circle cx="50" cy="73.5" r="7" fill="#b3202a"/>
+        </svg>
+        <p id="loading-text">読み込み中…</p>
+        <button id="btn-reload" class="btn btn-secondary" hidden>もう一度読み込む</button>
+      </div>
+    </section>
+
+    <!-- ========== 1. トップ画面 ========== -->
+    <section id="screen-top" class="screen">
+      <header class="hero">
+        <!-- 陰陽玉のマーク（画像ファイルを使わず、図形として描いている） -->
+        <svg class="yinyang" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="47" fill="#fff" stroke="#7d1a22" stroke-width="5"/>
+          <path d="M50 3A47 47 0 0 1 50 97A23.5 23.5 0 0 0 50 50A23.5 23.5 0 0 1 50 3Z" fill="#b3202a"/>
+          <circle cx="50" cy="26.5" r="7" fill="#fff"/>
+          <circle cx="50" cy="73.5" r="7" fill="#b3202a"/>
+        </svg>
+        <p class="hero-sub">第22回東方Project人気投票</p>
+        <h1 class="hero-title">東方人気投票<br>ブラックジャック</h1>
+        <p class="hero-lead">順位がそのまま点数になる。<br><strong>150</strong> を超えずに <strong>150</strong> を目指せ。</p>
+      </header>
+
+      <div class="stack">
+        <button id="btn-top-create" class="btn btn-primary" type="button">ルームを作成</button>
+        <button id="btn-top-join" class="btn btn-secondary" type="button">ルームに参加</button>
+        <button class="btn btn-ghost" type="button" data-action="rules">遊び方を見る</button>
+      </div>
+
+      <footer class="fan-notice">
+        <p>※本ゲームは東方Projectのファン制作（非公式）ゲームです。<br>原作者・公式とは関係ありません。</p>
+        <p>順位は「第22回東方Project人気投票」の結果を利用しています。<br>東方Project © 上海アリス幻樂団</p>
+      </footer>
+    </section>
+
+    <!-- ========== 2. ルーム作成画面 ========== -->
+    <section id="screen-create" class="screen">
+      <h2 class="screen-title">ルームを作成</h2>
+      <form id="form-create" class="card stack" novalidate>
+        <label class="field">
+          <span class="field-label">プレイヤー名（ニックネーム）</span>
+          <input id="input-create-name" class="input" type="text"
+                 placeholder="例：しょうた" autocomplete="nickname" enterkeyhint="done">
+        </label>
+        <p id="error-create" class="form-error" role="alert" hidden></p>
+        <button id="btn-create" class="btn btn-primary" type="submit">ルームを作成する</button>
+      </form>
+      <p class="hint">作成するとルームIDが発行されます。<br>いっしょに遊ぶ人にIDを伝えてください。</p>
+      <button class="btn btn-ghost" type="button" data-action="go-top">もどる</button>
+    </section>
+
+    <!-- ========== 3. ルーム参加画面 ========== -->
+    <section id="screen-join" class="screen">
+      <h2 class="screen-title">ルームに参加</h2>
+      <form id="form-join" class="card stack" novalidate>
+        <label class="field">
+          <span class="field-label">ルームID（5文字）</span>
+          <input id="input-join-room" class="input input-room-id" type="text"
+                 placeholder="A7K3P" autocomplete="off" autocapitalize="characters"
+                 autocorrect="off" spellcheck="false" enterkeyhint="next">
+        </label>
+        <label class="field">
+          <span class="field-label">プレイヤー名（ニックネーム）</span>
+          <input id="input-join-name" class="input" type="text"
+                 placeholder="例：しょうた" autocomplete="nickname" enterkeyhint="done">
+        </label>
+        <p id="error-join" class="form-error" role="alert" hidden></p>
+        <button id="btn-join" class="btn btn-primary" type="submit">参加する</button>
+      </form>
+      <button class="btn btn-ghost" type="button" data-action="go-top">もどる</button>
+    </section>
+
+    <!-- ========== 4. 待機画面 ========== -->
+    <section id="screen-lobby" class="screen">
+      <h2 class="screen-title">プレイヤーを待っています</h2>
+
+      <div class="card room-card">
+        <p class="room-label">ルームID</p>
+        <p id="lobby-room-id" class="room-id">-----</p>
+        <div class="row">
+          <button id="btn-copy-id" class="btn btn-small" type="button">IDをコピー</button>
+          <button id="btn-share" class="btn btn-small" type="button">招待リンクを送る</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">参加者 <span id="lobby-count" class="count"></span></h3>
+        <ul id="lobby-players" class="player-list"></ul>
+      </div>
+
+      <p id="lobby-message" class="hint"></p>
+      <button id="btn-start" class="btn btn-primary" type="button" hidden>ゲーム開始</button>
+      <button class="btn btn-ghost" type="button" data-action="rules">遊び方を見る</button>
+      <button id="btn-leave-lobby" class="btn btn-ghost" type="button">退出する</button>
+    </section>
+
+    <!-- ========== 5. ゲーム画面（キャラクター選択） ========== -->
+    <section id="screen-game" class="screen screen-game">
+
+      <!-- 上に固定される部分：ターン・目標・自分の合計点、検索欄（スクロールしても常に見える） -->
+      <div class="game-top">
+        <div id="game-status" class="status-bar"></div>
+        <div id="search-row" class="search-row" hidden>
+          <input id="input-search" class="input input-search" type="search"
+                 placeholder="名前・よみがな・順位で検索" autocomplete="off"
+                 autocorrect="off" spellcheck="false" enterkeyhint="search"
+                 aria-label="キャラクターを検索">
+        </div>
+      </div>
+
+      <!-- 全員の合計点と状況（決定 / 選択中 / OUT / 切断中） -->
+      <ul id="game-scoreboard" class="scoreboard"></ul>
+
+      <!-- A. まだ決定していないとき：キャラクター一覧 -->
+      <div id="game-picker" class="picker" hidden>
+        <p id="picker-hint" class="picker-hint"></p>
+        <ul id="char-list" class="char-list"></ul>
+
+        <!-- 下に固定される部分：選んだキャラの確認と決定ボタン -->
+        <div id="pick-panel" class="pick-panel">
+          <div id="pick-info" class="pick-info"></div>
+          <button id="btn-decide" class="btn btn-primary" type="button">このキャラクターを選択</button>
+        </div>
+      </div>
+
+      <!-- B. 決定したあと・OUTのとき：ほかの人を待つ -->
+      <div id="game-waiting" class="waiting" hidden>
+        <div id="waiting-mine" class="card waiting-mine"></div>
+        <p id="waiting-message" class="hint"></p>
+        <button id="btn-force" class="btn btn-secondary" type="button" hidden>
+          未選択の人を待たずに結果を公開
+        </button>
+      </div>
+    </section>
+
+    <!-- ========== 6. ターン結果画面 ========== -->
+    <section id="screen-reveal" class="screen screen-game">
+      <div class="game-top">
+        <div id="reveal-status" class="status-bar"></div>
+      </div>
+      <div class="reveal-body">
+        <h2 id="reveal-title" class="reveal-title"></h2>
+        <ul id="reveal-list" class="reveal-list"></ul>
+        <div id="reveal-banned" class="banned-note" hidden></div>
+        <div id="reveal-footer" class="reveal-footer">
+          <button id="btn-next" class="btn btn-primary" type="button" hidden></button>
+          <p id="reveal-wait" class="hint"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 7. 最終結果画面 ========== -->
+    <section id="screen-result" class="screen">
+      <h2 class="result-heading">GAME RESULT</h2>
+      <div id="result-winner" class="winner-card"></div>
+      <ol id="result-ranking" class="ranking"></ol>
+
+      <details class="card history">
+        <summary>各ターンの選択をふりかえる</summary>
+        <div id="result-history"></div>
+      </details>
+
+      <button id="btn-again" class="btn btn-primary" type="button" hidden>同じメンバーでもう一度</button>
+      <p id="result-wait" class="hint"></p>
+      <button id="btn-leave-result" class="btn btn-ghost" type="button">トップへもどる</button>
+
+      <footer class="fan-notice">
+        <p>※本ゲームは東方Projectのファン制作（非公式）ゲームです。</p>
+      </footer>
+    </section>
+
+  </main>
+
+  <!-- 画面下に一時的に出るメッセージ -->
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- 確認ダイアログ（「本当に○○しますか？」） -->
+  <dialog id="dialog-confirm" class="dialog">
+    <h3 id="confirm-title" class="dialog-title"></h3>
+    <p id="confirm-message" class="dialog-message"></p>
+    <div class="row">
+      <button id="confirm-cancel" class="btn btn-secondary" type="button">キャンセル</button>
+      <button id="confirm-ok" class="btn btn-primary" type="button">OK</button>
+    </div>
+  </dialog>
+
+  <!-- ゲーム中のメニュー -->
+  <dialog id="dialog-menu" class="dialog">
+    <h3 class="dialog-title">メニュー</h3>
+    <p class="dialog-message">ルームID：<strong id="menu-room-id"></strong></p>
+    <div class="stack">
+      <button class="btn btn-secondary" type="button" data-action="rules">遊び方を見る</button>
+      <button id="btn-leave-game" class="btn btn-secondary" type="button">ゲームから抜ける</button>
+      <button class="btn btn-ghost" type="button" data-action="close-dialog">とじる</button>
+    </div>
+  </dialog>
+
+  <!-- 遊び方 -->
+  <dialog id="dialog-rules" class="dialog">
+    <h3 class="dialog-title">遊び方</h3>
+    <ol class="rules">
+      <li>毎ターン、東方キャラクターを<strong>1人</strong>選びます。</li>
+      <li>そのキャラの<strong>人気投票の順位</strong>が、そのまま点数に加算されます。<br>
+        <span class="rules-example">例：博麗 霊夢は3位 → <b>+3</b></span></li>
+      <li>全員が決定すると、選択が<strong>一斉に公開</strong>されます。</li>
+      <li>同じターンに同じキャラを選んだ人が2人以上いたら、その全員が <b>+0</b>。<br>
+        そのキャラは以降<strong>だれも選べなくなります</strong>。</li>
+      <li>合計が <b>150</b> を超えたら <b class="text-out">OUT</b>。ちょうど150はセーフ。</li>
+      <li><strong>5ターン</strong>終了時、OUTでない人のうち150に最も近い人が勝ち。<br>同じ点数なら全員が勝者です。</li>
+    </ol>
+    <button class="btn btn-primary" type="button" data-action="close-dialog">とじる</button>
+  </dialog>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>

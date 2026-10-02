@@ -1,0 +1,89 @@
+{
+  // ============================================================
+  // Firebase Realtime Database のセキュリティルール
+  //
+  // このファイルの中身をすべてコピーして、Firebase コンソールの
+  // 「Realtime Database」→「ルール」に貼り付け、「公開」を押してください。
+  // （// で始まる説明の行も、そのまま貼り付けて大丈夫です）
+  //
+  // ルールの読み方:
+  //   auth      … アクセスしてきた人（auth.uid がその人のID）
+  //   data      … 書き込む「前」のデータ
+  //   newData   … 書き込んだ「後」のデータ
+  //   root      … データベース全体（書き込む前）
+  //   $roomId   … その場所のキー（ここではルームID）が入る変数
+  //   .read / .write    … true になれば読める / 書ける（上の階層で許可されたら下も許可）
+  //   .validate         … 書き込むデータの形のチェック（false なら書けない）
+  // ============================================================
+  "rules": {
+
+    "rooms": {
+      // ※ "rooms" そのものには .read が無いので、ルームの一覧は誰も見られない。
+      //    ルームIDを知っている人だけが、そのルームを読める。
+      "$roomId": {
+        ".read": "auth != null",
+
+        // ルームを新しく作れるのは、そのIDのルームがまだ無いときだけ（上書き・削除は不可）
+        ".write": "auth != null && !data.exists()",
+        ".validate": "newData.hasChildren(['hostUid', 'state'])",
+
+        "hostUid": {
+          // ルームを作った本人のIDしか書けない
+          ".validate": "newData.isString() && newData.val() === auth.uid"
+        },
+
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+
+        "players": {
+          "$uid": {
+            // 書けるのは自分の欄だけ。
+            // 新しく参加できるのは待機中(lobby)のあいだだけ（＝ゲーム開始後の途中参加は不可）。
+            // すでに参加している人は、オンライン表示の更新や退出ができる。
+            ".write": "auth != null && auth.uid === $uid && (data.exists() || root.child('rooms').child($roomId).child('state').child('status').val() === 'lobby')",
+            ".validate": "newData.hasChildren(['name', 'joinedAt']) && newData.child('name').isString() && newData.child('name').val().length >= 1 && newData.child('name').val().length <= 40 && newData.child('joinedAt').isNumber()"
+          }
+        },
+
+        "state": {
+          // ゲームの状態を書き換えられるのは、そのルームにいる人だけ
+          ".write": "auth != null && data.exists() && root.child('rooms').child($roomId).child('players').child(auth.uid).exists()",
+          ".validate": "newData.hasChild('status')"
+        },
+
+        "submitted": {
+          "$roundKey": {
+            "$uid": {
+              // 「決定した」という印。ゲームの参加者が、自分の分だけ書ける
+              ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($roomId).child('state').child('scores').child($uid).exists()",
+              ".validate": "newData.val() === true"
+            }
+          }
+        }
+      }
+    },
+
+    "picks": {
+      "$roomId": {
+        "$roundKey": {
+          // ★同時公開のしくみ★
+          // そのラウンドの全員の選択を読めるのは、
+          //   ・自分の選択をすでに送った人（送ったあとは変更できない）
+          //   ・OUTになっていて、もう選択しない人
+          // だけ。つまり「相手の選択を見てから自分の選択を決める」ことはできない。
+          ".read": "auth != null && (data.child(auth.uid).exists() || root.child('rooms').child($roomId).child('state').child('scores').child(auth.uid).child('out').val() === true)",
+
+          "$uid": {
+            // 自分の選択は、いつでも読める（リロード後に表示を戻すため）
+            ".read": "auth != null && auth.uid === $uid",
+
+            // 書けるのは、OUTでない参加者が、自分の欄に、1回だけ（!data.exists()）
+            ".write": "auth != null && auth.uid === $uid && !data.exists() && root.child('rooms').child($roomId).child('state').child('scores').child($uid).child('out').val() === false",
+            ".validate": "newData.isNumber()"
+          }
+        }
+      }
+    }
+  }
+}

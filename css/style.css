@@ -1,0 +1,1169 @@
+@charset "UTF-8";
+/* ============================================================
+   style.css … 見た目（スマートフォンの縦画面を基本に作っています）
+
+   目次
+     1. 色・フォントなどの基本設定
+     2. 共通の部品（ボタン・カード・入力欄・タグ）
+     3. お知らせ（バナー・トースト・ダイアログ）
+     4. トップ／作成／参加／待機 画面
+     5. ゲーム画面（ステータスバー・スコア・キャラ一覧・決定欄）
+     6. ターン結果画面
+     7. 最終結果画面
+     8. 動き（アニメーション）
+   ============================================================ */
+
+/* ---------- 1. 基本設定 ---------- */
+:root {
+  /* 色を変えたいときは、ここの値を書き換える */
+  --paper: #f6f1e7;        /* 背景（和紙のような色） */
+  --surface: #fffdf9;      /* カードの背景 */
+  --ink: #2b2420;          /* 文字（墨色） */
+  --ink-soft: #6f655e;     /* 補足の文字 */
+  --line: #e0d6c4;         /* 枠線 */
+  --red: #b3202a;          /* 朱色（メインの色） */
+  --red-deep: #7d1a22;
+  --red-soft: #fbe9e7;
+  --gold: #a9812a;
+  --gold-deep: #7a5a10;
+  --gold-soft: #f8eed2;
+  --green: #2c7a55;
+  --green-soft: #e2f3ea;
+  --gray-soft: #eeeae3;
+
+  --radius: 14px;
+  --shadow: 0 2px 10px rgba(60, 40, 20, 0.08);
+  --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+    "Yu Gothic UI", "Yu Gothic", "Noto Sans JP", Meiryo, sans-serif;
+  --font-serif: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif JP", serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;   /* iPhoneで文字が勝手に大きくならないように */
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  color: var(--ink);
+  background-color: var(--paper);
+  background-image: radial-gradient(circle at 1px 1px, rgba(125, 26, 34, 0.07) 1px, transparent 0);
+  background-size: 18px 18px;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;          /* 長い名前でも横にはみ出さない */
+  overscroll-behavior-y: contain;   /* 下に引っぱったときの「再読み込み」を起こしにくくする */
+  touch-action: manipulation;       /* ダブルタップでの拡大を防ぐ */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* hidden 属性がついた要素は必ず隠す */
+[hidden] {
+  display: none !important;
+}
+
+#app {
+  max-width: 520px;   /* PCで開いてもスマホと同じ幅で表示する */
+  margin: 0 auto;
+}
+
+/* 画面は「active」がついた1つだけを表示する（util.js の showScreen が切り替える） */
+.screen {
+  display: none;
+  padding: 20px 16px 32px;
+}
+.screen.active {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.screen-title {
+  margin: 12px 0 0;
+  font-family: var(--font-serif);
+  font-size: 24px;
+  text-align: center;
+  color: var(--red-deep);
+}
+
+.hint {
+  margin: 0;
+  font-size: 14px;
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+.text-out {
+  color: var(--red);
+  font-weight: 800;
+}
+
+/* ---------- 2. 共通の部品 ---------- */
+
+/* ボタン：指で押しやすいよう、高さを大きめにしている */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 54px;
+  padding: 12px 18px;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  cursor: pointer;
+  touch-action: manipulation;   /* ダブルタップでの拡大を防ぐ */
+  transition: transform 0.08s, opacity 0.15s;
+}
+.btn:active {
+  transform: scale(0.98);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  color: #fff;
+  background: linear-gradient(180deg, #c62a34, #9c1c25);
+  box-shadow: 0 3px 0 #6e141b;
+}
+.btn-secondary {
+  color: var(--red-deep);
+  background: var(--surface);
+  border-color: var(--red);
+}
+.btn-ghost {
+  min-height: 44px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: transparent;
+}
+.btn-small {
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--line);
+}
+/* 決定ボタン：まだキャラクターを選んでいないときの見た目 */
+.btn.is-idle {
+  opacity: 0.5;
+  filter: grayscale(0.7);
+}
+
+.card {
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.card-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.count {
+  margin-left: 6px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.row {
+  display: flex;
+  gap: 10px;
+}
+.row > * {
+  flex: 1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field-label {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* 入力欄：文字を16px以上にしておくと、iPhoneで入力時に画面が拡大されない */
+.input {
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 17px;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(179, 32, 42, 0.15);
+}
+.input-room-id {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  text-align: center;
+  text-transform: uppercase;
+}
+.input-room-id::placeholder {
+  font-weight: 400;
+  color: #cfc6b8;
+}
+
+.form-error {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--red-deep);
+  background: var(--red-soft);
+  border-radius: 10px;
+}
+
+.tag {
+  flex: none;
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+  vertical-align: middle;
+  border-radius: 999px;
+}
+.tag-me {
+  margin-left: 6px;
+  color: #fff;
+  background: var(--red);
+}
+.tag-host {
+  color: var(--gold-deep);
+  background: var(--gold-soft);
+  border: 1px solid var(--gold);
+}
+.tag-offline {
+  color: #fff;
+  background: #7d766f;
+}
+
+/* 赤いハンコ風の「OUT」 */
+.stamp-out {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 8px;
+  font-size: 0.9em;
+  font-weight: 900;
+  line-height: 1.5;
+  letter-spacing: 0.08em;
+  color: var(--red);
+  background: #fff;
+  border: 2px solid var(--red);
+  border-radius: 6px;
+  transform: rotate(-6deg);
+}
+
+/* 陰陽玉のマーク（画像ファイルを使わず、index.html の中のSVGで描いている） */
+.yinyang {
+  display: block;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto;
+}
+
+/* ---------- 3. お知らせ ---------- */
+.banner {
+  padding: 6px 12px;
+  font-size: 13px;
+  text-align: center;
+}
+.banner-demo {
+  color: #6b4e00;
+  background: #fff3c4;
+  border-bottom: 1px solid #e6cf7a;
+}
+.banner-offline {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  color: #fff;
+  background: #4a4340;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  z-index: 100;
+  width: max-content;
+  max-width: min(92vw, 440px);
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  color: #fff;
+  background: rgba(43, 36, 32, 0.96);
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  transform: translateX(-50%);
+  animation: toast-in 0.25s both;
+}
+.toast-error {
+  background: var(--red-deep);
+}
+/* ゲーム画面では、下の決定欄に重ならない高さに出す */
+body[data-screen="game"] .toast {
+  bottom: calc(210px + env(safe-area-inset-bottom));
+}
+
+.dialog {
+  width: min(92vw, 420px);
+  max-height: 86dvh;
+  padding: 20px;
+  overflow-y: auto;
+  color: var(--ink);
+  background: var(--surface);
+  border: none;
+  border-radius: 18px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+.dialog::backdrop {
+  background: rgba(30, 20, 15, 0.55);
+}
+.dialog-title {
+  margin: 0 0 10px;
+  font-family: var(--font-serif);
+  font-size: 20px;
+  color: var(--red-deep);
+}
+.dialog-message {
+  margin: 0 0 16px;
+  font-size: 15px;
+}
+.dialog-message:empty {
+  display: none;
+}
+.rules {
+  margin: 0 0 16px;
+  padding-left: 1.4em;
+  font-size: 15px;
+}
+.rules li {
+  margin-bottom: 8px;
+}
+.rules-example {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+/* ---------- 4. トップ／作成／参加／待機 ---------- */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 70dvh;
+  text-align: center;
+  color: var(--ink-soft);
+}
+.loading .yinyang {
+  animation: spin 2.4s linear infinite;
+}
+
+.hero {
+  padding: 24px 0 4px;
+  text-align: center;
+}
+.hero-sub {
+  margin: 14px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--gold);
+}
+.hero-title {
+  margin: 4px 0 12px;
+  font-family: var(--font-serif);
+  font-size: clamp(28px, 8.6vw, 38px);
+  line-height: 1.25;
+  color: var(--red-deep);
+}
+.hero-lead {
+  margin: 0;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+.hero-lead strong {
+  font-size: 20px;
+  color: var(--red);
+}
+
+.fan-notice {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+  color: var(--ink-soft);
+}
+.fan-notice p {
+  margin: 0 0 6px;
+}
+
+.room-card {
+  text-align: center;
+}
+.room-label {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.room-id {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 44px;
+  font-weight: 900;
+  line-height: 1.3;
+  letter-spacing: 0.18em;
+  color: var(--red-deep);
+  user-select: all;
+}
+
+.player-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.player-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  font-size: 17px;
+  border-bottom: 1px solid var(--line);
+}
+.player-item:last-child {
+  border-bottom: none;
+}
+.player-name {
+  font-weight: 700;
+}
+.player-item .tag-me {
+  margin-left: 0;
+}
+.player-item.is-offline .player-name {
+  color: #a39b93;
+}
+
+/* ---------- 5. ゲーム画面 ---------- */
+.screen-game.active {
+  gap: 0;
+  padding: 0;
+}
+
+/* 上に固定される部分。スクロールしても常に見える */
+.game-top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--paper);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.status-bar {
+  padding: 8px 14px 10px;
+  padding-top: max(8px, env(safe-area-inset-top));
+  color: #fff;
+  background: linear-gradient(180deg, #3d2c27, #2b2420);
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.status-turn {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #f1d9a0;
+}
+.status-turn b {
+  font-size: 28px;
+  line-height: 1;
+  color: #fff;
+}
+.status-remain {
+  margin-right: auto;
+  font-size: 13px;
+  color: #d9cfc4;
+}
+.status-menu {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  font-size: 18px;
+  color: #fff;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.status-total {
+  font-size: 14px;
+}
+.status-total b {
+  font-size: 30px;
+  line-height: 1.1;
+  color: #ffd98a;
+  font-variant-numeric: tabular-nums;
+}
+.status-rest {
+  margin-left: 6px;
+  padding: 2px 10px;
+  font-size: 13px;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+.status-target {
+  margin-left: auto;
+  font-size: 14px;
+  white-space: nowrap;
+  color: #d9cfc4;
+}
+.status-target b {
+  font-size: 20px;
+  color: #fff;
+}
+
+/* 全員の合計点と状況（上には固定しない。一覧と一緒にスクロールする） */
+.scoreboard {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 10px 2px;
+  list-style: none;
+}
+.score-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 6px 3px 10px;
+  font-size: 13px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+}
+.score-chip.is-me {
+  border-color: var(--red);
+}
+.chip-name {
+  max-width: 6.5em;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.chip-total {
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.chip-status {
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--ink-soft);
+  background: var(--gray-soft);
+  border-radius: 999px;
+}
+.score-chip.is-done .chip-status {
+  color: var(--green);
+  background: var(--green-soft);
+}
+.score-chip.is-out .chip-status {
+  color: #fff;
+  background: var(--red);
+}
+.score-chip.is-offline .chip-status {
+  color: #fff;
+  background: #7d766f;
+}
+.score-chip.is-out .chip-name,
+.score-chip.is-out .chip-total {
+  color: #a39b93;
+}
+
+.search-row {
+  padding: 8px 10px;
+  background: #fffaf0;
+}
+.input-search {
+  min-height: 46px;
+}
+
+.picker-hint {
+  margin: 0;
+  padding: 6px 14px 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+/* キャラクター一覧 */
+.char-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 55dvh;   /* 検索結果が少なくても、決定欄が上に飛び上がらないように */
+  margin: 0;
+  padding: 0 10px 14px;
+  list-style: none;
+}
+.char-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 54px;
+  padding: 8px 12px 8px 6px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.char-rank {
+  flex: none;
+  width: 3.7em;
+  font-size: 12px;
+  text-align: center;
+  color: var(--ink-soft);
+}
+.char-rank b {
+  font-size: 19px;
+  color: var(--red-deep);
+  font-variant-numeric: tabular-nums;
+}
+.char-name {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.char-point {
+  flex: none;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: right;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+.char-point small {
+  display: block;
+  font-size: 10px;
+}
+/* 選ぶと150を超えるキャラクター */
+.char-row.is-over .char-point {
+  color: var(--red);
+}
+/* タップして選んでいるキャラクター */
+.char-row.is-selected {
+  background: var(--red-soft);
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px rgba(179, 32, 42, 0.18);
+}
+/* 重複して使用禁止になったキャラクター */
+.char-row.is-banned {
+  color: #a39b93;
+  background: var(--gray-soft);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+.char-row.is-banned .char-name {
+  text-decoration: line-through;
+}
+.char-row.is-banned .char-rank b {
+  color: #a39b93;
+}
+.char-tag {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: #8b8580;
+  border-radius: 999px;
+}
+.char-empty {
+  padding: 32px 12px;
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+/* 下に固定される決定欄 */
+.pick-panel {
+  position: sticky;
+  bottom: 0;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 14px calc(10px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 2px solid var(--red);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+}
+.pick-panel .btn {
+  min-height: 50px;
+}
+.pick-info p {
+  margin: 0;
+  line-height: 1.45;
+}
+.pick-empty {
+  padding: 4px 0;
+  font-size: 14px;
+  text-align: center;
+  color: var(--ink-soft);
+}
+.pick-name {
+  font-size: 18px;
+  font-weight: 800;
+}
+.pick-detail {
+  font-size: 14px;
+}
+.pick-detail b {
+  font-size: 15px;
+  color: var(--red-deep);
+}
+.pick-after {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.pick-after b {
+  font-size: 15px;
+  color: var(--ink);
+}
+.pick-after.is-over,
+.pick-after.is-over b {
+  font-weight: 700;
+  color: var(--red);
+}
+
+/* 決定したあとの待機表示 */
+.waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 16px 32px;
+}
+.waiting-mine {
+  text-align: center;
+}
+.waiting-mine p {
+  margin: 0;
+}
+.waiting-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.waiting-char {
+  padding: 6px 0 4px;
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.3;
+  color: var(--red-deep);
+}
+.waiting-text {
+  font-size: 15px;
+}
+.waiting-note {
+  margin-top: 6px !important;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+/* ---------- 6. ターン結果画面 ---------- */
+.reveal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 16px 32px;
+}
+.reveal-title {
+  margin: 4px 0 0;
+  font-family: var(--font-serif);
+  font-size: 28px;
+  text-align: center;
+  color: var(--red-deep);
+  animation: pop-in 0.5s both;
+}
+.reveal-turn {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  color: var(--gold);
+}
+.reveal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* カードは上から順に時間差で現れる。--i は views.js がつける順番（0, 1, 2 …） */
+.reveal-card {
+  --delay: calc(0.7s + var(--i) * 0.75s);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  animation: card-in 0.45s var(--delay) both;
+}
+/* カードの中身：左に「だれが・だれを選んだか」、右に「加点・合計」 */
+.reveal-left {
+  flex: 1;
+  min-width: 0;
+}
+.reveal-right {
+  flex: none;
+  text-align: right;
+  white-space: nowrap;
+}
+.reveal-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.reveal-pick {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+.reveal-pick small {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+/* 加点は、カードが出た少しあとに「ポン」と現れる */
+.reveal-gain {
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1.15;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+  animation: pop-in 0.4s calc(var(--delay) + 0.35s) both;
+}
+.reveal-note {
+  margin-right: 6px;
+  font-size: 12px;
+  vertical-align: middle;
+}
+/* 合計は、加点のさらにあとに現れる */
+.reveal-total {
+  font-size: 13px;
+  color: var(--ink-soft);
+  animation: fade-in 0.4s calc(var(--delay) + 0.6s) both;
+}
+.reveal-total b {
+  font-size: 19px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.reveal-card.is-duplicate {
+  background: var(--red-soft);
+  border-color: var(--red);
+}
+.reveal-card.is-duplicate .reveal-gain,
+.reveal-card.is-out .reveal-gain {
+  color: var(--red);
+}
+.reveal-card.is-none .reveal-gain,
+.reveal-card.is-invalid .reveal-gain {
+  color: var(--ink-soft);
+}
+.reveal-card.is-none .reveal-pick {
+  color: var(--ink-soft);
+}
+.reveal-card.is-out {
+  border-color: var(--red-deep);
+}
+.reveal-card.is-skipped {
+  background: var(--gray-soft);
+  box-shadow: none;
+}
+.reveal-card.is-skipped .reveal-pick {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.banned-note {
+  padding: 10px 14px;
+  font-size: 14px;
+  background: var(--gray-soft);
+  border: 2px dashed #b9b1a6;
+  border-radius: var(--radius);
+}
+.banned-note b {
+  margin-right: 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #fff;
+  background: #8b8580;
+  border-radius: 999px;
+}
+/* 全員のカードが出そろってから現れる */
+.banned-note,
+.reveal-footer {
+  animation: fade-in 0.5s calc(0.7s + var(--i, 0) * 0.75s) both;
+}
+.reveal-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---------- 7. 最終結果画面 ---------- */
+.result-heading {
+  margin: 12px 0 0;
+  font-family: var(--font-serif);
+  font-size: 26px;
+  letter-spacing: 0.2em;
+  text-align: center;
+  color: var(--red-deep);
+}
+.winner-card {
+  padding: 18px 16px;
+  text-align: center;
+  background: linear-gradient(160deg, #fff7dc, #f1dc9c);
+  border: 2px solid var(--gold);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  animation: pop-in 0.6s both;
+}
+.winner-card p {
+  margin: 0;
+}
+.winner-label {
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  color: var(--gold-deep);
+}
+.winner-name {
+  padding: 4px 0;
+  font-family: var(--font-serif);
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1.3;
+  color: var(--red-deep);
+}
+.winner-detail {
+  font-size: 15px;
+}
+.winner-card.is-nobody {
+  background: var(--gray-soft);
+  border-color: #b9b1a6;
+}
+.winner-card.is-nobody .winner-label {
+  color: var(--ink);
+}
+
+.ranking {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rank-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+}
+.rank-place {
+  flex: none;
+  width: 2.8em;
+  font-weight: 900;
+  text-align: center;
+  color: var(--ink-soft);
+}
+.rank-name {
+  flex: 1;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.rank-score {
+  flex: none;
+  text-align: right;
+  line-height: 1.3;
+}
+.rank-score b {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.rank-score small {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.rank-item.is-winner {
+  background: var(--gold-soft);
+  border-color: var(--gold);
+}
+.rank-item.is-winner .rank-place {
+  color: var(--gold-deep);
+}
+.rank-item.is-out {
+  background: var(--gray-soft);
+}
+.rank-item.is-out .rank-place {
+  font-size: 13px;
+  color: var(--red);
+}
+.rank-item.is-out .rank-name,
+.rank-item.is-out .rank-score b {
+  color: #8b8580;
+}
+
+.history summary {
+  font-weight: 700;
+  cursor: pointer;
+}
+.history-player {
+  margin-top: 14px;
+}
+.history-name {
+  margin: 0 0 2px;
+  font-weight: 700;
+}
+.history-lines {
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  list-style: none;
+}
+.history-lines li {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.history-turn {
+  flex: none;
+  width: 2em;
+  font-weight: 700;
+  color: var(--gold);
+}
+.history-muted {
+  color: #a39b93;
+}
+
+/* ---------- 8. 動き ---------- */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+}
+/* visibility も切り替えることで、現れる前のボタンを押せないようにしている */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    visibility: hidden;
+  }
+  to {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+}
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 端末の設定で「視差効果を減らす」にしている人には、動きを出さない */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

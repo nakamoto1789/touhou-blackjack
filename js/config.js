@@ -6,55 +6,78 @@
 // ============================================================
 
 /**
- * 難易度ごとの設定。ルールは難易度ごとに別々に持っています。
+ * ゲームモードごとの設定。ルールはモードごとに別々に持っています。
+ * （ほかのモードの数字を借りたり、「150点のゲーム」を前提にしたりはしていません）
  *
- * いま遊べるのは Hard と Lunatic です。
- * Easy / Normal は、ルールが決まったら
- *   1. available を true にする
- *   2. 下の3つ（targetScore / maxTurns / maxCharacterRank）を書く
- * だけで選べるようになります。（くわしくは docs/DESIGN.md の「難易度」を参照）
+ *   name        … 画面に表示する名前
+ *   description … 待機画面のモード選択に出す、ひとことの説明
+ *   available   … true なら選べる。false にすると「準備中」と表示され、選べなくなる
+ *   custom      … true のモードは、ホストが待機画面でルールを決められる（オリジナル）。
+ *                 そのとき下の5つは「最初に入っている値」になる
  *
- *   label            … 画面に表示する名前
- *   available        … true なら選べる。false のあいだは「Coming Soon」と表示される
- *   targetScore      … 目標値。これを「超えたら」OUT（ちょうどはセーフ）
- *   maxTurns         … ターン数
- *   maxCharacterRank … 使えるキャラクターの範囲。50 なら「人気投票50位以内」だけ。
- *                       null なら制限なし（全キャラクター）
+ *   ---- ルール（この5つで、1つのゲームのルールが決まる）----
+ *   targetScore … 目標値
+ *   burstScore  … バーストする点数。合計がこの点数「以上」になったらバースト
+ *   maxTurns    … ターン数
+ *   minRank     … 使えるキャラクターの範囲（人気投票の順位）の「開始」
+ *   maxRank     … 使えるキャラクターの範囲の「終了」。
+ *                 null にすると「最後の順位まで」（人数はキャラクターデータから自動で決まる）
  *
  * 画面には、ここに書いた順番で並びます。
+ * モードを増やすときは、ここに1つ足すだけです。（くわしくは docs/DESIGN.md の「ゲームモード」を参照）
  */
-export const DIFFICULTY_SETTINGS = {
-  easy: {
-    label: 'Easy',
-    available: false,
-    // 今後設定
+export const GAME_MODES = {
+  hard: {
+    name: 'ハード',
+    description: '150点を目指す',
+    available: true,
+    targetScore: 150,
+    burstScore: 151,
+    maxTurns: 5,
+    minRank: 1,
+    maxRank: null,   // 全キャラクター
   },
 
   normal: {
-    label: 'Normal',
-    available: false,
-    // 今後設定
+    name: 'ノーマル',
+    description: '50点を目指す',
+    available: true,
+    targetScore: 50,
+    burstScore: 51,
+    maxTurns: 5,
+    minRank: 1,
+    maxRank: 50,     // 人気投票 1〜50位
   },
 
-  hard: {
-    label: 'Hard',
+  original: {
+    name: 'オリジナル',
+    description: '自分でルールを設定',
     available: true,
-    targetScore: 21,
+    custom: true,    // ホストが待機画面でルールを決める。下は最初に入っている値
+    targetScore: 100,
+    burstScore: 101,
     maxTurns: 5,
-    maxCharacterRank: 50,
-  },
-
-  lunatic: {
-    label: 'Lunatic',
-    available: true,
-    targetScore: 150,
-    maxTurns: 5,
-    maxCharacterRank: null,
+    minRank: 1,
+    maxRank: null,
   },
 };
 
-/** ルームを作った直後に選ばれている難易度（上の設定の名前で指定する） */
-export const DEFAULT_DIFFICULTY = 'lunatic';
+/** ルームを作った直後に選ばれているモード（上の設定の名前で指定する。available が true のものにする） */
+export const DEFAULT_MODE = 'hard';
+
+/**
+ * オリジナルで設定できる値の上限（入力のチェックに使う）。
+ * 下限は、目標値とターン数が 1、バーストする点数が「目標値 + 1」です。
+ * 順位の範囲は、キャラクターデータにある順位（1位〜最後の順位）の中で決められます。
+ */
+export const ORIGINAL_LIMITS = {
+  maxTargetScore: 9999,   // 目標値
+  maxBurstScore: 10000,   // バーストする点数
+  maxTurns: 20,           // ターン数
+};
+
+/** 順位のもとになっている人気投票の名前（説明文に使う） */
+export const VOTE_NAME = '第22回東方Project人気投票';
 
 /** ゲームを始められる最少人数 */
 export const MIN_PLAYERS = 2;

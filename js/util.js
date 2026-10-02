@@ -37,6 +37,15 @@ export function normalizeText(text) {
     .replace(/[\s・、,（）()\-〜~]/g, '');
 }
 
+/**
+ * 入力された文字を、0以上の整数にする（全角の数字「１００」も読める）。
+ * 数字だけでできていないとき（空欄・小数・マイナス・文字まじり）は NaN を返す。
+ */
+export function parseWholeNumber(text) {
+  const digits = String(text ?? '').normalize('NFKC').trim();
+  return /^\d{1,9}$/.test(digits) ? Number(digits) : NaN;
+}
+
 // ---- キャラクター一覧の準備（50音順と検索）--------------------------
 
 /** 50音の「行」。左が見出し、右がその行に入るひらがな（濁点つき・小さい字も同じ行） */

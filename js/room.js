@@ -1,7 +1,7 @@
 // ============================================================
 // room.js … ルームとゲーム進行の操作
 //
-// 「ルームを作る」「参加する」「難易度を選ぶ」「ゲームを始める」「選択を決定する」
+// 「ルームを作る」「参加する」「ゲームモードを選ぶ」「ゲームを始める」「選択を決定する」
 // 「結果を計算する」「次のターンへ進む」といった操作をまとめています。
 //
 //   画面 (main.js) → このファイル → 通信係 (backend) → Firebase
@@ -20,13 +20,15 @@ import {
   ROOM_ID_CHARS,
   NAME_MAX_LENGTH,
   DEFAULT_PLAYER_NAME,
-  DIFFICULTY_SETTINGS,
+  GAME_MODES,
 } from './config.js';
 import {
   createLobbyState,
   createGameState,
-  isDifficultyAvailable,
-  withDifficulty,
+  isModeAvailable,
+  withMode,
+  withOriginalRules,
+  findRuleProblems,
   rulesOf,
   isCharacterUsable,
   roundKeyOf,
@@ -191,29 +193,66 @@ export function startCandidates(room) {
     .slice(0, MAX_PLAYERS);
 }
 
-/**
- * 難易度を選ぶ（ホストの操作）。
- * 選んだ難易度はルームのデータに保存されるので、全員の画面に同じものが表示される。
- * 変えられるのは待機中だけ。ゲームが始まると固定される。
- */
-export async function setDifficulty(roomId, difficulty) {
-  if (!isDifficultyAvailable(difficulty)) {
-    const label = DIFFICULTY_SETTINGS[difficulty]?.label ?? difficulty;
-    throw new GameError(`${label} は準備中です（Coming Soon）。`);
+/** ホストだけができる操作を、ほかの人がしようとしたら止める */
+function assertHost(room) {
+  if (hostUidOf(room) !== myUid) {
+    throw new GameError('この操作ができるのは、ホストだけです。');
   }
-  return backend.updateState(roomId, (state) => withDifficulty(state, difficulty));
 }
 
-/** ゲームを開始する（ホストの操作）。そのとき選ばれている難易度で始まる */
-export async function startGame(roomId, room) {
+/** オリジナルのルールに問題があれば、その説明を GameError として知らせる */
+function assertRulesOk(rules, characters) {
+  const problems = findRuleProblems(rules, characters);
+  if (problems.length > 0) throw new GameError(problems[0]);
+}
+
+/**
+ * ゲームモードを選ぶ（ホストの操作）。
+ * 選んだモードとそのルールはルームのデータに保存されるので、全員の画面に同じものが表示される。
+ * 変えられるのは待機中だけ。ゲームが始まると固定される。
+ */
+export async function setMode(roomId, room, modeId) {
+  assertHost(room);
+  if (!isModeAvailable(modeId)) {
+    const name = GAME_MODES[modeId]?.name ?? modeId;
+    throw new GameError(`${name} は準備中です。`);
+  }
+  return backend.updateState(roomId, (state) => withMode(state, modeId));
+}
+
+/**
+ * オリジナルのルールを決める（ホストの操作）。
+ * 決めたルールはルームのデータに保存されるので、参加者の待機画面にも同じ内容が表示される。
+ * 入力に問題があるときは、保存せずに GameError で知らせる。
+ * @param {object} rules { targetScore, burstScore, maxTurns, minRank, maxRank }
+ * @param {Array} characters キャラクターの配列（順位の範囲と人数のチェックに使う）
+ */
+export async function setOriginalRules(roomId, room, rules, characters) {
+  assertHost(room);
+  assertRulesOk(rules, characters);
+  return backend.updateState(roomId, (state) => withOriginalRules(state, rules));
+}
+
+/**
+ * ゲームを開始する（ホストの操作）。そのとき選ばれているモードとルールで始まる。
+ *
+ * オリジナルのときは、ホストの入力欄にあるルール（originalRules）を受け取り、
+ * それを保存してから開始する。入力した直後に「ゲーム開始」を押しても、
+ * 必ず画面に出ているとおりのルールで始まるようにするため。
+ */
+export async function startGame(roomId, room, originalRules = null, characters = []) {
+  assertHost(room);
   const participants = startCandidates(room);
   if (participants.length < MIN_PLAYERS) {
     throw new GameError(`${MIN_PLAYERS}人以上そろってから開始してください。`);
   }
+  if (originalRules) assertRulesOk(originalRules, characters);
+
   await backend.updateState(roomId, (state) => {
     if (state.status !== 'lobby') return undefined;   // すでに開始済み
-    // rulesOf は、難易度の記録がない古いルームなら既定の難易度（Lunatic）を返す
-    return createGameState(participants, (state.gameNo || 0) + 1, rulesOf(state).id);
+    const lobby = (originalRules && withOriginalRules(state, originalRules)) || state;
+    // モードやルールの記録がない古いルームなら、既定のモード（ハード）で始まる
+    return createGameState(participants, (state.gameNo || 0) + 1, lobby);
   });
 }
 
@@ -230,10 +269,10 @@ export async function submitPick(roomId, room, charId, charById) {
     throw new GameError('いまは選択できません。');
   }
   if (!me) throw new GameError('このゲームには参加していません。');
-  if (me.out) throw new GameError('OUTになったため、選択できません。');
+  if (me.out) throw new GameError('バーストしたため、選択できません。');
   if (!charById.has(charId)) throw new GameError('キャラクターを選択してください。');
   if (!isCharacterUsable(rulesOf(state), charById.get(charId))) {
-    throw new GameError('このキャラクターは、この難易度では選べません。');
+    throw new GameError('このキャラクターは、このゲームのルールでは選べません。');
   }
   if (isBanned(state, charId)) {
     throw new GameError('このキャラクターは重複したため、使用禁止です。');
@@ -276,10 +315,10 @@ export async function goNext(roomId, room) {
   });
 }
 
-/** 最終結果のあと、同じルームの待機画面に戻る（ホストの操作）。難易度は前回のまま */
+/** 最終結果のあと、同じルームの待機画面に戻る（ホストの操作）。モードとルールは前回のまま */
 export async function backToLobby(roomId) {
   return backend.updateState(roomId, (state) => {
     if (state.status !== 'finished') return undefined;
-    return createLobbyState(state.gameNo, state.difficulty);
+    return createLobbyState(state.gameNo, state.mode, state.original);
   });
 }

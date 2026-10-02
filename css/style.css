@@ -243,6 +243,7 @@ body {
   padding: 10px 12px;
   font-size: 14px;
   font-weight: 600;
+  white-space: pre-line;   /* 問題が複数あるときは、1つずつ改行して出す */
   color: var(--red-deep);
   background: var(--red-soft);
   border-radius: 10px;
@@ -274,7 +275,7 @@ body {
   background: #7d766f;
 }
 
-/* 赤いハンコ風の「OUT」 */
+/* 赤いハンコ風の「バースト」 */
 .stamp-out {
   display: inline-block;
   margin-left: 6px;
@@ -368,6 +369,7 @@ body[data-screen="game"] .toast {
 .dialog-message {
   margin: 0 0 16px;
   font-size: 15px;
+  white-space: pre-line;   /* メッセージの中の改行を、そのまま改行として表示する */
 }
 .dialog-message:empty {
   display: none;
@@ -384,13 +386,47 @@ body[data-screen="game"] .toast {
   font-size: 14px;
   color: var(--ink-soft);
 }
-/* 「遊び方」の見出しの横に出す難易度（例：（Lunatic）） */
-.rules-difficulty {
+/* 「遊び方」の見出しの横に出すゲームモード（例：（ハード）） */
+.rules-mode {
   margin-left: 6px;
   font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 600;
   color: var(--ink-soft);
+}
+/* 「遊び方」の上の部分：モードごとの説明と、注意書き */
+.rules-modes {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  background: #fffaf0;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+}
+.rules-mode-block {
+  margin-bottom: 10px;
+}
+.rules-mode-block p {
+  margin: 0;
+}
+.rules-mode-name {
+  margin: 0 0 2px;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  color: var(--red-deep);
+}
+/* 「スティールはありません」の注意書き */
+.rules-note {
+  margin: 0;
+  padding-top: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--red-deep);
+  border-top: 1px dashed var(--line);
+}
+.rules-heading {
+  margin: 0 0 6px;
+  font-size: 15px;
 }
 
 /* ---------- 4. トップ／作成／参加／待機 ---------- */
@@ -435,13 +471,17 @@ body[data-screen="game"] .toast {
   font-size: 20px;
   color: var(--red);
 }
-/* 遊べる難易度と目標値（例：Hard：目標 21 ／ Lunatic：目標 150） */
-.hero-difficulties {
+/* 遊べるゲームモード（例：ハード：150点を目指す ／ ノーマル：50点を目指す ／ …） */
+.hero-modes {
   margin: 8px 0 0;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--gold);
+}
+/* 幅が足りないときは「／」のところで改行する（言葉の途中では改行しない） */
+.hero-modes span {
+  display: inline-block;
 }
 
 .fan-notice {
@@ -500,8 +540,8 @@ body[data-screen="game"] .toast {
   color: #a39b93;
 }
 
-/* 難易度の選択（待機画面） */
-.difficulty-list {
+/* ゲームモードの選択（待機画面） */
+.mode-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -509,7 +549,7 @@ body[data-screen="game"] .toast {
   padding: 0;
   list-style: none;
 }
-.difficulty-row {
+.mode-row {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -526,11 +566,11 @@ body[data-screen="game"] .toast {
   touch-action: manipulation;
 }
 /* ホスト以外の人には「見るだけ」で表示する（押せないが、色は薄くしない） */
-.difficulty-row:disabled {
+.mode-row:disabled {
   cursor: default;
 }
 /* ○ ● の丸印 */
-.difficulty-radio {
+.mode-radio {
   flex: none;
   width: 18px;
   height: 18px;
@@ -538,67 +578,167 @@ body[data-screen="game"] .toast {
   border: 2px solid #b9b1a6;
   border-radius: 50%;
 }
-/* 難易度の名前と、その下のルールの説明 */
-.difficulty-text {
+/* モードの名前と、その下のひとことの説明 */
+.mode-text {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
-.difficulty-name {
+.mode-name {
   font-family: var(--font-serif);
   font-size: 18px;
   font-weight: 800;
   line-height: 1.4;
   letter-spacing: 0.04em;
 }
-/* 例：目標 21 点・5 ターン・人気投票 50 位以内 */
-.difficulty-detail {
+/* 例：150点を目指す */
+.mode-detail {
   font-size: 12px;
   line-height: 1.5;
   color: var(--ink-soft);
 }
-/* 幅が足りないときは「・」の後ろで改行する（言葉の途中では改行しない） */
-.difficulty-detail span {
-  display: inline-block;
-}
-/* 「PLAY」「Coming Soon」の札 */
-.difficulty-tag {
+/* 「準備中」の札（config.js で available を false にしたモードにつく） */
+.mode-tag {
   flex: none;
   padding: 2px 10px;
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
   color: #fff;
-  background: var(--red);
+  background: #8b8580;
   border-radius: 999px;
 }
-/* 準備中（Coming Soon）の難易度 */
-.difficulty-row.is-soon {
+/* 準備中のモード */
+.mode-row.is-soon {
   color: #a39b93;
   background: var(--gray-soft);
   border-style: dashed;
 }
-.difficulty-row.is-soon .difficulty-tag {
-  background: #8b8580;
-}
-.difficulty-row.is-soon .difficulty-radio {
+.mode-row.is-soon .mode-radio {
   background: transparent;
 }
-/* いま選ばれている難易度 */
-.difficulty-row.is-selected {
+/* いま選ばれているモード */
+.mode-row.is-selected {
   background: var(--red-soft);
   border-color: var(--red);
 }
-.difficulty-row.is-selected .difficulty-radio {
+.mode-row.is-selected .mode-radio {
   border-color: var(--red);
   box-shadow: inset 0 0 0 3px #fff;
   background: var(--red);
 }
-.difficulty-note {
+.mode-note {
   margin: 10px 0 0;
   font-size: 13px;
   text-align: center;
+  color: var(--ink-soft);
+}
+
+/* 選ばれているモードのルール（目標値・バースト・ターン数・キャラクター） */
+.rules-box {
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  background: #fffaf0;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+}
+.rules-box-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--red-deep);
+}
+.rules-box dl {
+  margin: 0;
+  font-size: 14px;
+}
+/* 1行に「項目の名前」と「内容」を並べる */
+.rules-box dl div {
+  display: flex;
+  gap: 12px;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.rules-box dl div:last-child {
+  border-bottom: none;
+}
+.rules-box dt {
+  flex: none;
+  width: 6.5em;
+  color: var(--ink-soft);
+}
+.rules-box dd {
+  flex: 1;
+  margin: 0;
+  font-weight: 700;
+}
+
+/* オリジナルのルール設定（ホストにだけ表示される入力欄） */
+.original-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  background: #fffaf0;
+  border: 1.5px solid var(--red);
+  border-radius: 12px;
+}
+.original-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--red-deep);
+}
+/* 1行に「項目の名前」「入力欄」「単位」を並べる */
+.original-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.original-label {
+  flex: 1;
+  font-weight: 700;
+}
+.original-unit {
+  flex: none;
+  width: 3.8em;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+/* 順位の「開始 位 〜 終了 位」 */
+.original-range {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+/* 数字を入れる小さな入力欄 */
+.input-number {
+  flex: none;
+  width: 5.4em;
+  min-height: 46px;
+  padding: 6px 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.original-count {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+  color: var(--gold-deep);
+}
+.original-count:empty {
+  display: none;
+}
+.original-hint {
+  margin: 0;
+  font-size: 12px;
   color: var(--ink-soft);
 }
 
@@ -629,9 +769,11 @@ body[data-screen="game"] .toast {
   gap: 12px;
 }
 .status-turn {
+  flex: none;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.06em;
+  white-space: nowrap;
   color: #f1d9a0;
 }
 .status-turn b {
@@ -639,14 +781,18 @@ body[data-screen="game"] .toast {
   line-height: 1;
   color: #fff;
 }
+/* 「残り ○ ターン」。幅が足りないときは、ここが縮んで「…」になる */
 .status-remain {
+  min-width: 0;
   margin-right: auto;
+  overflow: hidden;
   font-size: 13px;
   white-space: nowrap;
+  text-overflow: ellipsis;
   color: #d9cfc4;
 }
-/* 難易度の札（例：Lunatic） */
-.status-difficulty {
+/* ゲームモードの札（例：ハード） */
+.status-mode {
   flex: none;
   padding: 2px 10px;
   font-size: 12px;
@@ -659,7 +805,7 @@ body[data-screen="game"] .toast {
 }
 /* とても幅のせまい画面では入りきらないので、札を出さない（メニューで確認できる） */
 @media (max-width: 345px) {
-  .status-difficulty {
+  .status-mode {
     display: none;
   }
 }
@@ -1021,6 +1167,12 @@ body[data-screen="game"] .toast {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+/* このターンでバーストした人のカードに出る「バースト」の印（合計と同じタイミングで現れる） */
+.reveal-burst {
+  margin-top: 2px;
+  font-size: 13px;
+  animation: fade-in 0.4s calc(var(--delay) + 0.6s) both;
+}
 .reveal-card.is-duplicate {
   background: var(--red-soft);
   border-color: var(--red);
@@ -1084,7 +1236,7 @@ body[data-screen="game"] .toast {
   text-align: center;
   color: var(--red-deep);
 }
-.result-difficulty {
+.result-mode {
   margin: -10px 0 0;
   font-size: 14px;
   font-weight: 700;
@@ -1183,8 +1335,10 @@ body[data-screen="game"] .toast {
 .rank-item.is-out {
   background: var(--gray-soft);
 }
+/* 「バースト」の4文字が、順位（1位 など）と同じ幅に収まるようにする */
 .rank-item.is-out .rank-place {
-  font-size: 13px;
+  width: 4.1em;
+  font-size: 11px;
   color: var(--red);
 }
 .rank-item.is-out .rank-name,

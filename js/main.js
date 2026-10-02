@@ -12,11 +12,11 @@
 // ============================================================
 
 import { CHARACTERS_URL, ROOM_ID_LENGTH, NAME_MAX_LENGTH, DEFAULT_PLAYER_NAME } from './config.js';
-import { $, showScreen, showToast, confirmDialog, copyText, prepareCharacters } from './util.js';
+import { $, showScreen, showToast, confirmDialog, copyText, prepareCharacters, parseWholeNumber } from './util.js';
 import { initBackend, backend, isDemoMode } from './backend.js';
 import {
-  rulesOf,
-  isDifficultyAvailable,
+  modeOf,
+  compatibilityOf,
   roundKeyOf,
   allActiveSubmitted,
   isBanned,
@@ -170,9 +170,19 @@ function exitRoom(message) {
   history.replaceState(null, '', url);
 
   for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close();
+  views.resetLobby();
   updateWakeLock();
   showScreen('top');
   if (message) showToast(message, 'error');
+}
+
+/** ゲームを続けられないとき：メッセージと「もう一度読み込む」ボタンだけの画面にして止まる */
+function stopWithMessage(message) {
+  if (app.stopWatching) app.stopWatching();
+  app.stopWatching = null;
+  $('loading-text').textContent = message;
+  $('btn-reload').hidden = false;
+  showScreen('loading');
 }
 
 /**
@@ -204,16 +214,23 @@ function onRoomChange(room) {
     return;
   }
 
-  // ゲーム中のルームの難易度を、この画面が知らないとき：
-  // ゲームが更新されて難易度が増えたのに、古い画面のまま開いている状態。
-  // 違うルールで計算してしまわないよう、再読み込みをお願いして止まる。
-  const { status, difficulty } = room.state;
-  if (status !== 'lobby' && difficulty && !isDifficultyAvailable(difficulty)) {
-    if (app.stopWatching) app.stopWatching();
-    app.stopWatching = null;
-    $('loading-text').textContent = 'ゲームが新しくなっています。ページを再読み込みしてください。';
-    $('btn-reload').hidden = false;
-    showScreen('loading');
+  // ゲーム中のルームのルールを、この画面（読み込み済みのプログラム）で正しく扱えるか確かめる。
+  // 扱えないまま進めると、人によって違うルールで計算してしまうので、ここで止まる。
+  const compatibility = compatibilityOf(room.state);
+  if (compatibility === 'reload') {
+    // ゲームが更新されてモードやルールが増えたのに、古い画面のまま開いている → 再読み込みすれば直る
+    stopWithMessage('ゲームが新しくなっています。ページを再読み込みしてください。');
+    return;
+  }
+  if (compatibility === 'broken') {
+    // 前のバージョンの画面から始められたゲーム → この画面では続けられないので、ルームから出る
+    // （出ておかないと、再読み込みしても同じルームに戻ってきてしまう）
+    app.room = room;
+    leaveRoom();
+    stopWithMessage(
+      'このルームのゲームは、古いバージョンの画面から始められたため、続けられません。' +
+        '全員がページを再読み込みしてから、ルームを作り直してください。'
+    );
     return;
   }
 
@@ -239,7 +256,7 @@ function noticeHostChange() {
   if (!becameHost) return;
   showToast(
     app.room.state.status === 'lobby'
-      ? 'あなたがホストになりました。難易度の選択とゲーム開始ができます。'
+      ? 'あなたがホストになりました。ゲームモードの選択とゲーム開始ができます。'
       : 'あなたがホストになりました。ゲームを進められます。'
   );
 }
@@ -310,7 +327,7 @@ function autoActions() {
     restoreMyPick(roundKey);
   }
 
-  // 全員の選択を読めるのは「自分が決定済み」か「OUT」の人だけ。
+  // 全員の選択を読めるのは「自分が決定済み」か「バーストした（out）」人だけ。
   // その人たちの端末が、全員そろったことに気づいた時点で結果を計算する。
   const canReadPicks = me.out || submitted[app.uid];
   if (canReadPicks && allActiveSubmitted(state, submitted)) {
@@ -474,18 +491,76 @@ async function onCopyRoomId() {
   showToast((await copyText(app.roomId)) ? 'ルームIDをコピーしました' : `ルームID：${app.roomId}`);
 }
 
-/** 待機画面で難易度をタップ（選べるのはホストだけ。ほかの人のボタンは押せない状態になっている） */
-function onDifficultyTap(event) {
-  const row = event.target.closest('[data-difficulty]');
+/** 待機画面でゲームモードをタップ（選べるのはホストだけ。ほかの人のボタンは押せない状態になっている） */
+function onModeTap(event) {
+  const row = event.target.closest('[data-mode]');
   if (!row) return;
-  const difficulty = row.dataset.difficulty;
-  if (difficulty === rulesOf(app.room.state).id) return;   // すでに選ばれている
-  // 準備中（Coming Soon）の難易度を選ぶと、ここでエラーになってメッセージが出る
-  roomApi.setDifficulty(app.roomId, difficulty).catch((error) => showError(error));
+  const modeId = row.dataset.mode;
+  if (modeId === modeOf(app.room.state).id) return;   // すでに選ばれている
+  // 準備中のモードを選ぶと、ここでエラーになってメッセージが出る
+  roomApi.setMode(app.roomId, app.room, modeId).catch((error) => showError(error));
+}
+
+// ---- オリジナルのルール設定（ホストだけに出る設定欄）----
+
+/** 設定欄から、入力されている値を読む（数字でない入力は NaN になる） */
+function readOriginalForm() {
+  const rules = {};
+  for (const [key, id] of Object.entries(views.ORIGINAL_INPUTS)) {
+    rules[key] = parseWholeNumber($(id).value);
+  }
+  return rules;
+}
+
+/**
+ * 設定欄に入力しているとき（1文字ごとに呼ばれる）：
+ * キャラクターの人数と、入力の問題点の表示を更新する。
+ * 目標値を変えたときは、バーストする点数を自動で「目標値 + 1」にする。
+ */
+function onOriginalInput(event) {
+  if (event.target.id === views.ORIGINAL_INPUTS.targetScore) {
+    const targetScore = parseWholeNumber(event.target.value);
+    if (Number.isInteger(targetScore)) $(views.ORIGINAL_INPUTS.burstScore).value = targetScore + 1;
+  }
+  views.renderOriginalCheck(app, readOriginalForm());
+}
+
+/**
+ * 設定欄の入力を終えたとき（ほかの場所をタップした・キーボードを閉じたときに呼ばれる）：
+ * 問題がなければ、ルールをルームに保存する。保存すると、参加者の待機画面にも同じ内容が表示される。
+ */
+function onOriginalChange() {
+  const rules = readOriginalForm();
+  if (views.renderOriginalCheck(app, rules).length > 0) return;   // 問題があるあいだは保存しない
+  // 全角で入力された数字などを、読み取った数字（半角）に書き直しておく
+  for (const [key, id] of Object.entries(views.ORIGINAL_INPUTS)) {
+    $(id).value = rules[key];
+  }
+  roomApi.setOriginalRules(app.roomId, app.room, rules, app.characters).catch((error) => showError(error));
 }
 
 /** 「ゲーム開始」（ホスト） */
 async function onStart() {
+  // オリジナルのときは、設定欄の内容を確かめてもらってから開始する
+  let originalRules = null;
+  if (modeOf(app.room.state).custom) {
+    originalRules = readOriginalForm();
+    if (views.renderOriginalCheck(app, originalRules).length > 0) {
+      showToast('オリジナルルールの入力を確認してください。', 'error');
+      $('original-form').scrollIntoView({ block: 'center' });
+      return;
+    }
+    const ok = await confirmDialog({
+      title: 'このルールで開始しますか？',
+      message: views
+        .rulesRows(originalRules, app.characters)
+        .map(([label, value]) => `${label}：${value}`)
+        .join('\n'),
+      okLabel: '開始する',
+    });
+    if (!ok) return;
+  }
+
   const offlineNames = roomApi
     .listPlayers(app.room)
     .filter((p) => !roomApi.isOnline(app.room, p.uid))
@@ -498,7 +573,7 @@ async function onStart() {
     });
     if (!ok) return;
   }
-  runTask($('btn-start'), () => roomApi.startGame(app.roomId, app.room));
+  runTask($('btn-start'), () => roomApi.startGame(app.roomId, app.room, originalRules, app.characters));
 }
 
 /** キャラクター一覧をタップ */
@@ -610,7 +685,13 @@ function bindEvents() {
   // 待機
   $('btn-copy-id').addEventListener('click', onCopyRoomId);
   $('btn-share').addEventListener('click', onShare);
-  $('lobby-difficulties').addEventListener('click', onDifficultyTap);
+  $('lobby-modes').addEventListener('click', onModeTap);
+  $('original-form').addEventListener('input', onOriginalInput);
+  $('original-form').addEventListener('change', onOriginalChange);
+  for (const id of Object.values(views.ORIGINAL_INPUTS)) {
+    // 入力欄をタップしたら中の数字を全部選ぶ（そのまま打てば、新しい数字に置き換わる）
+    $(id).addEventListener('focus', (event) => setTimeout(() => event.target.select(), 0));
+  }
   $('btn-start').addEventListener('click', onStart);
   $('btn-leave-lobby').addEventListener('click', onLeaveLobby);
 
@@ -642,6 +723,8 @@ function bindEvents() {
       case 'rules':
         views.renderRules(app);
         $('dialog-rules').showModal();
+        // 開いたときは「とじる」ボタンが選ばれて下までスクロールされるので、先頭に戻す
+        $('dialog-rules').scrollTop = 0;
         break;
       case 'menu':
         views.renderMenu(app);

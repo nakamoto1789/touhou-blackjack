@@ -13,11 +13,18 @@
 //   app.charById       キャラid → キャラクター
 //   app.selectedCharId 一覧でタップして選んでいるキャラ（決定前）
 //   app.myPick         自分が決定した選択 { roundKey, charId }
+//
+// ★順位とポイントを表示してよいのは「結果が公開された後」だけ★
+//   キャラクターを選ぶ画面（一覧・検索結果・確認欄・決定後の表示）には、
+//   順位もポイントも出しません。「選ぶと何点になるか」を隠すのがこのゲームの決まりです。
+//   表示するのは、ターン結果画面（renderRevealCards）と最終結果画面（renderResult）だけです。
 // ============================================================
 
-import { TARGET_SCORE, MAX_TURNS, MIN_PLAYERS, MAX_PLAYERS, POLL_LABEL } from './config.js';
-import { $, escapeHtml, normalizeText } from './util.js';
+import { MIN_PLAYERS, MAX_PLAYERS } from './config.js';
+import { $, escapeHtml, normalizeText, searchCharacters } from './util.js';
 import {
+  rulesOf,
+  listDifficulties,
   roundKeyOf,
   turnKey,
   isBanned,
@@ -63,6 +70,8 @@ export function renderLobby(app) {
     })
     .join('');
 
+  renderDifficultyList(app, iAmHost);
+
   // 「ゲーム開始」はホストにだけ表示。人数が足りないあいだは押せない
   const startButton = $('btn-start');
   startButton.hidden = !iAmHost;
@@ -79,13 +88,48 @@ export function renderLobby(app) {
   $('lobby-message').textContent = message;
 }
 
+/**
+ * 待機画面の「難易度を選択」の一覧を描く。
+ * 選ばれている難易度はルームのデータ（state.difficulty）から読むので、全員の画面で同じになる。
+ * 選べるのはホストだけ。ほかの人には、同じ一覧が「見るだけ」の状態で表示される。
+ */
+function renderDifficultyList(app, iAmHost) {
+  const current = rulesOf(app.room.state);
+
+  $('lobby-difficulty-title').textContent = iAmHost ? '難易度を選択' : '難易度';
+  $('lobby-difficulties').innerHTML = listDifficulties()
+    .map((difficulty) => {
+      const selected = difficulty.id === current.id;
+      const classes = [
+        'difficulty-row',
+        selected ? 'is-selected' : '',
+        difficulty.available ? '' : 'is-soon',
+      ].join(' ');
+      return `
+        <li>
+          <button type="button" class="${classes}" data-difficulty="${escapeHtml(difficulty.id)}"
+                  aria-pressed="${selected}" ${iAmHost ? '' : 'disabled'}>
+            <span class="difficulty-radio" aria-hidden="true"></span>
+            <span class="difficulty-name">${escapeHtml(difficulty.label)}</span>
+            <span class="difficulty-tag">${difficulty.available ? 'PLAY' : 'Coming Soon'}</span>
+          </button>
+        </li>`;
+    })
+    .join('');
+
+  $('lobby-difficulty-note').textContent = iAmHost
+    ? `難易度：${current.label}（ゲームを開始すると変更できません）`
+    : `難易度：${current.label}（ホストが選びます）`;
+}
+
 // ============================================================
-// 5・6 共通：画面上部のステータスバー（ターン・目標・自分の合計）
+// 5・6 共通：画面上部のステータスバー（ターン・難易度・目標・自分の合計）
 // ============================================================
 export function renderStatusBar(element, app) {
   const state = app.room.state;
+  const rules = rulesOf(state);   // このゲームの難易度の設定（目標値・ターン数）
   const me = state.scores[app.uid];
-  const remainingTurns = MAX_TURNS - state.turn;
+  const remainingTurns = rules.maxTurns - state.turn;
 
   let mine;
   if (!me) {
@@ -93,18 +137,19 @@ export function renderStatusBar(element, app) {
   } else if (me.out) {
     mine = `<div class="status-total">現在 <b>${me.total}</b> 点 <span class="stamp-out">OUT</span></div>`;
   } else {
-    mine = `<div class="status-total">現在 <b>${me.total}</b> 点 <span class="status-rest">あと ${TARGET_SCORE - me.total}</span></div>`;
+    mine = `<div class="status-total">現在 <b>${me.total}</b> 点 <span class="status-rest">あと ${rules.targetScore - me.total}</span></div>`;
   }
 
   element.innerHTML = `
     <div class="status-row">
-      <div class="status-turn">TURN <b>${state.turn}</b> / ${MAX_TURNS}</div>
+      <div class="status-turn">TURN <b>${state.turn}</b> / ${rules.maxTurns}</div>
       <div class="status-remain">${remainingTurns > 0 ? `残り ${remainingTurns} ターン` : '最終ターン'}</div>
+      <div class="status-difficulty" title="難易度">${escapeHtml(rules.label)}</div>
       <button class="status-menu" type="button" data-action="menu" aria-label="メニュー">☰</button>
     </div>
     <div class="status-row">
       ${mine}
-      <div class="status-target">目標 <b>${TARGET_SCORE}</b> 点</div>
+      <div class="status-target">目標 <b>${rules.targetScore}</b> 点</div>
     </div>`;
 }
 
@@ -146,23 +191,14 @@ function renderScoreboard(app) {
     .join('');
 }
 
-/** 検索語に合うキャラクターを返す（空なら全員） */
-function searchCharacters(characters, queryText) {
-  const query = normalizeText(queryText);
-  if (!query) return characters;
-  // 数字だけなら順位で探す（「6」→ 6位、60〜69位）
-  if (/^\d+$/.test(query)) {
-    return characters.filter((c) => String(c.rank).startsWith(query));
-  }
-  // それ以外は、名前とよみがなのどこかに含まれていれば見つかる
-  return characters.filter((c) => c.searchKey.includes(query));
-}
-
-/** キャラクター一覧を描く。検索の入力が変わるたび、新しいターンに入るたびに呼ばれる */
+/**
+ * キャラクター一覧を描く。検索の入力が変わるたび、新しいターンに入るたびに呼ばれる。
+ *
+ * app.characters は50音順に並んでいる（main.js の loadCharacters で並べ替え済み）。
+ * 表示するのは名前だけ。順位やポイントは出さない。
+ */
 export function renderCharList(app) {
   const state = app.room.state;
-  const me = state.scores[app.uid];
-  const rest = me ? TARGET_SCORE - me.total : TARGET_SCORE;   // あと何点まで足せるか
   const queryText = $('input-search').value;
   const found = searchCharacters(app.characters, queryText);
 
@@ -172,26 +208,32 @@ export function renderCharList(app) {
     return;
   }
 
+  // 検索していないとき（全員を表示するとき）だけ、「あ」「か」… の見出しを入れる
+  const showHeaders = normalizeText(queryText) === '';
+  let lastRow = null;
+
   $('char-list').innerHTML = found
     .map((character) => {
       const banned = isBanned(state, character.id);
-      const over = character.rank > rest;   // 選ぶと150を超える
       const classes = [
         'char-row',
         banned ? 'is-banned' : '',
-        over ? 'is-over' : '',
         character.id === app.selectedCharId ? 'is-selected' : '',
       ].join(' ');
-      const right = banned
-        ? '<span class="char-tag">使用禁止</span>'
-        : `<span class="char-point">+${character.rank}${over ? '<small>超過</small>' : ''}</span>`;
+
+      const header =
+        showHeaders && character.kanaRow !== lastRow
+          ? `<li class="char-header">${escapeHtml(character.kanaRow)}</li>`
+          : '';
+      lastRow = character.kanaRow;
+
       return `
+        ${header}
         <li>
           <button type="button" class="${classes}" data-char-id="${character.id}"
                   ${banned ? 'aria-disabled="true"' : ''}>
-            <span class="char-rank"><b>${character.rank}</b>位</span>
             <span class="char-name">${escapeHtml(character.name)}</span>
-            ${right}
+            ${banned ? '<span class="char-tag">使用禁止</span>' : ''}
           </button>
         </li>`;
     })
@@ -205,7 +247,10 @@ export function markSelectedChar(app) {
   }
 }
 
-/** 画面下の確認欄（キャラクター名・順位・獲得ポイント）を描く */
+/**
+ * 画面下の確認欄を描く。出すのは選んだキャラクターの名前だけ。
+ * （順位・ポイント・選んだあとの合計は、結果公開まで分からないようにしている）
+ */
 export function renderPickPanel(app) {
   const state = app.room.state;
   const me = state.scores[app.uid];
@@ -218,15 +263,9 @@ export function renderPickPanel(app) {
     return;
   }
 
-  const after = me.total + character.rank;
-  const over = after > TARGET_SCORE;
   $('pick-info').innerHTML = `
     <p class="pick-name">${escapeHtml(character.name)}</p>
-    <p class="pick-detail">${POLL_LABEL}：<b>${character.rank}位</b>　獲得ポイント：<b>+${character.rank}</b></p>
-    <p class="pick-after ${over ? 'is-over' : ''}">
-      合計 ${me.total} → <b>${after}</b>
-      ${over ? `<span>${TARGET_SCORE}を超えるのでOUTになります</span>` : `<span>（あと ${TARGET_SCORE - after}）</span>`}
-    </p>`;
+    <p class="pick-note">順位とポイントは、結果公開まで分かりません</p>`;
   button.classList.remove('is-idle');
 }
 
@@ -247,15 +286,15 @@ function renderWaiting(app) {
   } else if (me.out) {
     mine = `
       <p class="waiting-label"><span class="stamp-out">OUT</span></p>
-      <p class="waiting-text">${me.total}点で ${TARGET_SCORE} を超えました。<br>ここからは観戦になります。</p>`;
+      <p class="waiting-text">${me.total}点で ${rulesOf(state).targetScore} を超えました。<br>ここからは観戦になります。</p>`;
   } else {
+    // 自分が選んだキャラクターの名前だけを出す（順位とポイントは結果公開までのお楽しみ）
     const character = app.myPick?.roundKey === roundKey ? app.charById.get(app.myPick.charId) : null;
     mine = character
       ? `
         <p class="waiting-label">あなたの選択（決定済み）</p>
         <p class="waiting-char">${escapeHtml(character.name)}</p>
-        <p class="waiting-text">${POLL_LABEL}：${character.rank}位　獲得ポイント：+${character.rank}</p>
-        <p class="waiting-note">※ほかの人と重複したら +0 になります</p>`
+        <p class="waiting-note">順位とポイントは、全員が決定すると公開されます<br>※ほかの人と重複したら +0 になります</p>`
       : '<p class="waiting-label">あなたの選択（決定済み）</p><p class="waiting-text">読み込み中…</p>';
   }
   $('waiting-mine').innerHTML = mine;
@@ -290,12 +329,13 @@ export function renderGame(app) {
   $('game-waiting').hidden = picking;
 
   if (picking) {
-    const rest = TARGET_SCORE - me.total;
-    const picksLeft = MAX_TURNS - state.turn + 1;
+    const rules = rulesOf(state);
+    const rest = rules.targetScore - me.total;
+    const picksLeft = rules.maxTurns - state.turn + 1;
     $('picker-hint').textContent =
       rest > 0
         ? `あと ${rest} 点。このターンを入れて、あと ${picksLeft} 回選びます。`
-        : `いま ${TARGET_SCORE} 点ちょうど。加点されるとOUTです（重複して +0 ならセーフ）。`;
+        : `いま ${rules.targetScore} 点ちょうど。加点されるとOUTです（重複して +0 ならセーフ）。`;
     renderPickPanel(app);
   } else {
     renderWaiting(app);
@@ -337,9 +377,10 @@ export function renderRevealCards(app) {
           </li>`;
       }
 
+      // 結果が公開されたので、ここで初めて人気投票の順位と獲得ポイントを見せる
       const character = app.charById.get(result.charId);
       const pick = character
-        ? `${escapeHtml(character.name)}<small>${character.rank}位</small>`
+        ? `${escapeHtml(character.name)}<small>人気投票 ${character.rank}位</small>`
         : '（未選択）';
       const notes = {
         ok: '',
@@ -407,14 +448,17 @@ export function renderRevealFooter(app) {
 export function renderResult(app) {
   const { room } = app;
   const state = room.state;
+  const { targetScore, label: difficultyLabel } = rulesOf(state);
   const { winners, ranking } = judgeResult(state);
+
+  $('result-difficulty').textContent = `難易度：${difficultyLabel}`;
 
   // ---- 勝者 ----
   if (winners.length === 0) {
     $('result-winner').className = 'winner-card is-nobody';
     $('result-winner').innerHTML = `
       <p class="winner-label">勝者なし</p>
-      <p class="winner-detail">全員が ${TARGET_SCORE} を超えてOUTになりました</p>`;
+      <p class="winner-detail">全員が ${targetScore} を超えてOUTになりました</p>`;
   } else {
     const best = ranking[0];
     $('result-winner').className = 'winner-card';
@@ -424,7 +468,7 @@ export function renderResult(app) {
         .filter((p) => p.isWinner)
         .map((p) => `<p class="winner-name">${escapeHtml(p.name)}</p>`)
         .join('')}
-      <p class="winner-detail">${best.total}点（${TARGET_SCORE}との差：${best.diff}）${winners.length > 1 ? '<br>同率1位！' : ''}</p>`;
+      <p class="winner-detail">${best.total}点（${targetScore}との差：${best.diff}）${winners.length > 1 ? '<br>同率1位！' : ''}</p>`;
   }
 
   // ---- 全員の順位 ----
@@ -432,8 +476,8 @@ export function renderResult(app) {
     .map((player) => {
       const place = player.out ? 'OUT' : `${player.place}位`;
       const detail = player.out
-        ? `${player.total - TARGET_SCORE} オーバー`
-        : `${TARGET_SCORE}との差：${player.diff}`;
+        ? `${player.total - targetScore} オーバー`
+        : `${targetScore}との差：${player.diff}`;
       return `
         <li class="rank-item ${player.isWinner ? 'is-winner' : ''} ${player.out ? 'is-out' : ''}">
           <span class="rank-place">${place}</span>
@@ -475,4 +519,29 @@ export function renderResult(app) {
   $('result-wait').textContent = iAmHost
     ? ''
     : `ホスト（${nameOf(room, hostUid)}）が「もう一度」を押すと、待機画面に戻ります。`;
+}
+
+// ============================================================
+// 「遊び方」と「メニュー」のダイアログ
+// ============================================================
+
+/**
+ * 「遊び方」に出てくる数字（目標値・ターン数）を、難易度の設定に合わせる。
+ * ルームに入っているときはそのルームの難易度、入っていないときは既定の難易度を使う。
+ */
+export function renderRules(app) {
+  const rules = rulesOf(app.room?.state);
+  $('rules-difficulty').textContent = `（${rules.label}）`;
+  for (const element of document.querySelectorAll('[data-rule="target"]')) {
+    element.textContent = rules.targetScore;
+  }
+  for (const element of document.querySelectorAll('[data-rule="turns"]')) {
+    element.textContent = rules.maxTurns;
+  }
+}
+
+/** ゲーム中のメニューに、ルームIDと難易度を表示する */
+export function renderMenu(app) {
+  $('menu-room-id').textContent = app.roomId;
+  $('menu-difficulty').textContent = rulesOf(app.room?.state).label;
 }

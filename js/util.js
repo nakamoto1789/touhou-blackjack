@@ -37,6 +37,65 @@ export function normalizeText(text) {
     .replace(/[\s・、,（）()\-〜~]/g, '');
 }
 
+// ---- キャラクター一覧の準備（50音順と検索）--------------------------
+
+/** 50音の「行」。左が見出し、右がその行に入るひらがな（濁点つき・小さい字も同じ行） */
+const KANA_ROWS = [
+  ['あ', 'あいうえおぁぃぅぇぉゔ'],
+  ['か', 'かきくけこがぎぐげご'],
+  ['さ', 'さしすせそざじずぜぞ'],
+  ['た', 'たちつてとだぢづでどっ'],
+  ['な', 'なにぬねの'],
+  ['は', 'はひふへほばびぶべぼぱぴぷぺぽ'],
+  ['ま', 'まみむめも'],
+  ['や', 'やゆよゃゅょ'],
+  ['ら', 'らりるれろ'],
+  ['わ', 'わゐゑをんゎ'],
+];
+
+/** よみがなの最初の文字から、50音の「行」を返す。例: 'はくれいれいむ' → 'は'、'ぱちゅりー' → 'は' */
+export function kanaRowOf(reading) {
+  const first = normalizeText(reading).charAt(0);
+  const row = KANA_ROWS.find(([, letters]) => letters.includes(first));
+  return row ? row[0] : 'その他';
+}
+
+// 日本語の辞書と同じ順（50音順）で文字を比べる道具。濁点や「ー」も辞書と同じ扱いになる
+const kanaCollator = new Intl.Collator('ja');
+
+/** 2つのよみがなを50音順で比べる（並べ替えに使う）。a が先なら負の数を返す */
+export function compareKana(a, b) {
+  return kanaCollator.compare(a, b);
+}
+
+/**
+ * 読み込んだキャラクターに、検索と並べ替えのための情報をつけ、
+ * 50音順に並べた新しい配列を返す。
+ *   searchKey … 検索用（名前とよみがなを、ひらがな・記号なしにしてつなげたもの）
+ *   sortKey   … 並べ替え用のよみがな
+ *   kanaRow   … 50音の行（一覧の見出し「あ」「か」… に使う）
+ */
+export function prepareCharacters(characters) {
+  for (const character of characters) {
+    character.searchKey = `${normalizeText(character.name)}|${normalizeText(character.yomi)}`;
+    // 漢字を含む名前は yomi（よみがな）を、かなだけの名前は名前そのものを「よみ」として使う
+    character.sortKey = normalizeText(character.yomi || character.name);
+    character.kanaRow = kanaRowOf(character.sortKey);
+  }
+  return [...characters].sort((a, b) => compareKana(a.sortKey, b.sortKey) || a.id - b.id);
+}
+
+/**
+ * 検索語に合うキャラクターを返す（空なら全員）。
+ * 名前でも、よみがなでも見つかる。
+ * 順位では検索できない（キャラクターを選ぶ段階では、順位を分からなくするため）。
+ */
+export function searchCharacters(characters, queryText) {
+  const query = normalizeText(queryText);
+  if (!query) return characters;
+  return characters.filter((character) => character.searchKey.includes(query));
+}
+
 /** 画面を切り替える。例: showScreen('lobby') → id="screen-lobby" だけを表示 */
 export function showScreen(name) {
   const target = $(`screen-${name}`);

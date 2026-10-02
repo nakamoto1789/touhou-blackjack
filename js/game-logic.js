@@ -11,29 +11,72 @@
 // {
 //   status: 'lobby' | 'playing' | 'finished',
 //   gameNo: 1,                 // このルームで何回目のゲームか
-//   turn: 1,                   // 現在のターン (1〜MAX_TURNS)
+//   difficulty: 'lunatic',     // 難易度（config.js の DIFFICULTY_SETTINGS の名前）
+//   turn: 1,                   // 現在のターン (1〜その難易度のターン数)
 //   phase: 'select' | 'reveal',// 選択中 / 結果公開中
 //   scores: {                  // 参加者ごとの点数
-//     <uid>: { name: 'しょうた', order: 0, total: 87, out: false }
+//     <uid>: { name: '霊夢', order: 0, total: 87, out: false }
 //   },
 //   banned:  { c3: 1 },        // 使用禁止キャラ（キー: 'c'+キャラid、値: 禁止になったターン）
 //   history: { t1: { <uid>: {…ターン結果…} } }   // 各ターンの結果
 // }
 // ============================================================
 
-import { TARGET_SCORE, MAX_TURNS, MIN_PLAYERS, MAX_PLAYERS } from './config.js';
+import { DIFFICULTY_SETTINGS, DEFAULT_DIFFICULTY, MIN_PLAYERS, MAX_PLAYERS } from './config.js';
 
-/** ゲーム開始前（待機中）の状態を作る */
-export function createLobbyState(gameNo = 0) {
-  return { status: 'lobby', gameNo };
+// ---- 難易度 ----------------------------------------------------------
+
+/** その難易度が選べるか（準備中の難易度や、知らない名前は false） */
+export function isDifficultyAvailable(id) {
+  return Boolean(DIFFICULTY_SETTINGS[id] && DIFFICULTY_SETTINGS[id].available);
 }
 
 /**
- * ゲーム開始時の状態を作る。
+ * 難易度の名前から、その設定を取り出す。
+ * 返す値: { id: 'lunatic', label: 'Lunatic', available: true, targetScore: 150, maxTurns: 5 }
+ * 選べない難易度や、難易度の記録がない古いデータのときは、既定の難易度の設定を返す。
+ */
+export function difficultyOf(id) {
+  const key = isDifficultyAvailable(id) ? id : DEFAULT_DIFFICULTY;
+  return { id: key, ...DIFFICULTY_SETTINGS[key] };
+}
+
+/** そのゲームに適用されるルール（＝そのゲームの難易度の設定） */
+export function rulesOf(state) {
+  return difficultyOf(state?.difficulty);
+}
+
+/** 画面に並べる難易度の一覧: [{ id, label, available }, …] */
+export function listDifficulties() {
+  return Object.entries(DIFFICULTY_SETTINGS).map(([id, settings]) => ({ id, ...settings }));
+}
+
+/**
+ * 待機中に難易度を変えた状態を返す。
+ * ゲーム開始後や、選べない難易度のときは変えない（undefined を返す）。
+ */
+export function withDifficulty(state, id) {
+  if (state.status !== 'lobby' || !isDifficultyAvailable(id)) return undefined;
+  return { ...state, difficulty: id };
+}
+
+// ---- 状態を作る -------------------------------------------------------
+
+/** ゲーム開始前（待機中）の状態を作る */
+export function createLobbyState(gameNo = 0, difficulty = DEFAULT_DIFFICULTY) {
+  return { status: 'lobby', gameNo, difficulty: difficultyOf(difficulty).id };
+}
+
+/**
+ * ゲーム開始時の状態を作る。難易度はここで決まり、ゲームが終わるまで変わらない。
  * @param {Array<{uid: string, name: string}>} participants 参加者（表示したい順）
  * @param {number} gameNo このルームで何回目のゲームか
+ * @param {string} difficulty 難易度の名前
  */
-export function createGameState(participants, gameNo) {
+export function createGameState(participants, gameNo, difficulty = DEFAULT_DIFFICULTY) {
+  if (!isDifficultyAvailable(difficulty)) {
+    throw new Error('この難易度はまだ遊べません');
+  }
   if (participants.length < MIN_PLAYERS) {
     throw new Error(`${MIN_PLAYERS}人以上いないとゲームを開始できません`);
   }
@@ -44,7 +87,7 @@ export function createGameState(participants, gameNo) {
   participants.forEach((player, index) => {
     scores[player.uid] = { name: player.name, order: index, total: 0, out: false };
   });
-  return { status: 'playing', gameNo, turn: 1, phase: 'select', scores };
+  return { status: 'playing', gameNo, difficulty, turn: 1, phase: 'select', scores };
 }
 
 /**
@@ -104,6 +147,7 @@ export function allActiveSubmitted(state, submitted = {}) {
  * @returns {object} 結果を反映した新しい状態（phase は 'reveal'）
  */
 export function resolveTurn(state, picks, charById) {
+  const { targetScore } = rulesOf(state);
   const banned = { ...(state.banned || {}) };
 
   // --- 1) OUTでない人の「有効な選択」を集める -----------------------
@@ -154,7 +198,7 @@ export function resolveTurn(state, picks, charById) {
 
     const before = score.total;
     const after = before + gained;
-    const out = after > TARGET_SCORE;   // 「超えたら」OUT。ちょうど150はセーフ
+    const out = after > targetScore;   // 目標値を「超えたら」OUT。ちょうどはセーフ
 
     results[uid] = { charId, outcome, gained, before, after, out };
     scores[uid] = { ...score, total: after, out };
@@ -172,7 +216,7 @@ export function resolveTurn(state, picks, charById) {
 /** このターンの結果公開が終わったら、ゲームは終了か？ */
 export function isLastReveal(state) {
   const everyoneOut = activeUids(state).length === 0;
-  return state.turn >= MAX_TURNS || everyoneOut;
+  return state.turn >= rulesOf(state).maxTurns || everyoneOut;
 }
 
 /**
@@ -195,13 +239,14 @@ export function advance(state) {
  *   place … 順位（OUTの人は null。同じ差なら同じ順位）
  */
 export function judgeResult(state) {
+  const { targetScore } = rulesOf(state);
   const players = listParticipants(state).map((player) => ({
     uid: player.uid,
     name: player.name,
     order: player.order,
     total: player.total,
     out: player.out,
-    diff: player.out ? null : TARGET_SCORE - player.total,
+    diff: player.out ? null : targetScore - player.total,
   }));
 
   const safe = players.filter((player) => !player.out).sort((a, b) => a.diff - b.diff || a.order - b.order);

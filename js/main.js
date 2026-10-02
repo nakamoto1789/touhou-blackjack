@@ -11,10 +11,10 @@
 // 画面の描画そのものは views.js、ルールの計算は game-logic.js にあります。
 // ============================================================
 
-import { CHARACTERS_URL, ROOM_ID_LENGTH, NAME_MAX_LENGTH } from './config.js';
-import { $, showScreen, showToast, confirmDialog, copyText, normalizeText } from './util.js';
+import { CHARACTERS_URL, ROOM_ID_LENGTH, NAME_MAX_LENGTH, DEFAULT_PLAYER_NAME } from './config.js';
+import { $, showScreen, showToast, confirmDialog, copyText, prepareCharacters } from './util.js';
 import { initBackend, backend, isDemoMode } from './backend.js';
-import { roundKeyOf, allActiveSubmitted, isBanned, listParticipants } from './game-logic.js';
+import { rulesOf, roundKeyOf, allActiveSubmitted, isBanned, listParticipants } from './game-logic.js';
 import * as roomApi from './room.js';
 import * as views from './views.js';
 
@@ -60,16 +60,15 @@ async function start() {
   await openFirstScreen();
 }
 
-/** キャラクターデータ(JSON)を読み込み、検索用の文字列を用意する */
+/**
+ * キャラクターデータ(JSON)を読み込む。
+ * データは人気投票の順位順に入っているが、一覧では順位が分からないよう、
+ * ここで50音順に並べ替える（検索用の文字列もここで用意する）。
+ */
 async function loadCharacters() {
   const response = await fetch(CHARACTERS_URL);
   if (!response.ok) throw new Error('キャラクターデータを読み込めませんでした。');
-  const characters = await response.json();
-  for (const character of characters) {
-    // 名前とよみがなを、検索しやすい形（ひらがな・記号なし）にしてつなげておく
-    character.searchKey = `${normalizeText(character.name)}|${normalizeText(character.yomi)}`;
-  }
-  return characters;
+  return prepareCharacters(await response.json());
 }
 
 /** 通信が切れたらお知らせを出す（一瞬の切断では出さない） */
@@ -354,15 +353,20 @@ function rememberName(name) {
   backend.storage.setItem(STORAGE_NAME, roomApi.cleanName(name));
 }
 
+/** 名前の入力欄に最初から入れておく名前（前回使った名前。なければデフォルトの「霊夢」） */
+function initialName() {
+  return backend.storage.getItem(STORAGE_NAME) || DEFAULT_PLAYER_NAME;
+}
+
 function openCreateScreen() {
-  $('input-create-name').value = backend.storage.getItem(STORAGE_NAME) || '';
+  $('input-create-name').value = initialName();
   $('error-create').hidden = true;
   showScreen('create');
 }
 
 function openJoinScreen(roomId = '') {
   $('input-join-room').value = roomId;
-  $('input-join-name').value = backend.storage.getItem(STORAGE_NAME) || '';
+  $('input-join-name').value = initialName();
   $('error-join').hidden = true;
   showScreen('join');
 }
@@ -428,6 +432,16 @@ async function onShare() {
 
 async function onCopyRoomId() {
   showToast((await copyText(app.roomId)) ? 'ルームIDをコピーしました' : `ルームID：${app.roomId}`);
+}
+
+/** 待機画面で難易度をタップ（選べるのはホストだけ。ほかの人のボタンは押せない状態になっている） */
+function onDifficultyTap(event) {
+  const row = event.target.closest('[data-difficulty]');
+  if (!row) return;
+  const difficulty = row.dataset.difficulty;
+  if (difficulty === rulesOf(app.room.state).id) return;   // すでに選ばれている
+  // 準備中（Coming Soon）の難易度を選ぶと、ここでエラーになってメッセージが出る
+  roomApi.setDifficulty(app.roomId, difficulty).catch((error) => showError(error));
 }
 
 /** 「ゲーム開始」（ホスト） */
@@ -526,9 +540,13 @@ async function onLeaveGame() {
 function bindEvents() {
   $('btn-reload').addEventListener('click', () => location.reload());
 
-  // 名前の入力欄の文字数制限は、config.js の設定に合わせる
-  $('input-create-name').maxLength = NAME_MAX_LENGTH;
-  $('input-join-name').maxLength = NAME_MAX_LENGTH;
+  for (const input of [$('input-create-name'), $('input-join-name')]) {
+    // 名前の入力欄の文字数制限と入力例は、config.js の設定に合わせる
+    input.maxLength = NAME_MAX_LENGTH;
+    input.placeholder = `例：${DEFAULT_PLAYER_NAME}`;
+    // 入力欄をタップしたら中の名前を全部選ぶ（そのまま打てば、自分の名前に置き換わる）
+    input.addEventListener('focus', () => setTimeout(() => input.select(), 0));
+  }
 
   // トップ・作成・参加
   $('btn-top-create').addEventListener('click', openCreateScreen);
@@ -539,6 +557,7 @@ function bindEvents() {
   // 待機
   $('btn-copy-id').addEventListener('click', onCopyRoomId);
   $('btn-share').addEventListener('click', onShare);
+  $('lobby-difficulties').addEventListener('click', onDifficultyTap);
   $('btn-start').addEventListener('click', onStart);
   $('btn-leave-lobby').addEventListener('click', onLeaveLobby);
 
@@ -568,10 +587,11 @@ function bindEvents() {
         showScreen('top');
         break;
       case 'rules':
+        views.renderRules(app);
         $('dialog-rules').showModal();
         break;
       case 'menu':
-        $('menu-room-id').textContent = app.roomId;
+        views.renderMenu(app);
         $('dialog-menu').showModal();
         break;
       case 'close-dialog':

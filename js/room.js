@@ -1,7 +1,7 @@
 // ============================================================
 // room.js … ルームとゲーム進行の操作
 //
-// 「ルームを作る」「参加する」「ゲームを始める」「選択を決定する」
+// 「ルームを作る」「参加する」「難易度を選ぶ」「ゲームを始める」「選択を決定する」
 // 「結果を計算する」「次のターンへ進む」といった操作をまとめています。
 //
 //   画面 (main.js) → このファイル → 通信係 (backend) → Firebase
@@ -19,10 +19,15 @@ import {
   ROOM_ID_LENGTH,
   ROOM_ID_CHARS,
   NAME_MAX_LENGTH,
+  DEFAULT_PLAYER_NAME,
+  DIFFICULTY_SETTINGS,
 } from './config.js';
 import {
   createLobbyState,
   createGameState,
+  isDifficultyAvailable,
+  withDifficulty,
+  rulesOf,
   roundKeyOf,
   isBanned,
   resolveTurn as resolveTurnLogic,
@@ -47,6 +52,11 @@ export function normalizeRoomId(text) {
 export function cleanName(text) {
   const name = String(text || '').replace(/\s+/g, ' ').trim();
   return Array.from(name).slice(0, NAME_MAX_LENGTH).join('');
+}
+
+/** 実際に使うプレイヤー名。空欄のままなら、デフォルトの名前（霊夢）にする */
+function playerNameOf(text) {
+  return cleanName(text) || DEFAULT_PLAYER_NAME;
 }
 
 /** ランダムなルームIDを作る。例: 'A7K3P' */
@@ -104,8 +114,7 @@ export function hostUidOf(room) {
  * 万一IDが他のルームと重なったら、別のIDで作り直す。
  */
 export async function createRoom(playerName) {
-  const name = cleanName(playerName);
-  if (!name) throw new GameError('プレイヤー名を入力してください。');
+  const name = playerNameOf(playerName);
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const roomId = generateRoomId();
@@ -144,9 +153,7 @@ export async function joinRoom(roomIdText, playerName) {
     throw new GameError('このルームはすでにゲームが始まっています。途中参加はできません。');
   }
 
-  const name = cleanName(playerName);
-  if (!name) throw new GameError('プレイヤー名を入力してください。');
-
+  const name = playerNameOf(playerName);
   const players = listPlayers(room);
   if (players.filter((p) => p.online).length >= MAX_PLAYERS) {
     throw new GameError(`このルームは満員です（最大${MAX_PLAYERS}人）。`);
@@ -180,7 +187,20 @@ export function startCandidates(room) {
     .slice(0, MAX_PLAYERS);
 }
 
-/** ゲームを開始する（ホストの操作） */
+/**
+ * 難易度を選ぶ（ホストの操作）。
+ * 選んだ難易度はルームのデータに保存されるので、全員の画面に同じものが表示される。
+ * 変えられるのは待機中だけ。ゲームが始まると固定される。
+ */
+export async function setDifficulty(roomId, difficulty) {
+  if (!isDifficultyAvailable(difficulty)) {
+    const label = DIFFICULTY_SETTINGS[difficulty]?.label ?? difficulty;
+    throw new GameError(`${label} は準備中です（Coming Soon）。`);
+  }
+  return backend.updateState(roomId, (state) => withDifficulty(state, difficulty));
+}
+
+/** ゲームを開始する（ホストの操作）。そのとき選ばれている難易度で始まる */
 export async function startGame(roomId, room) {
   const participants = startCandidates(room);
   if (participants.length < MIN_PLAYERS) {
@@ -188,7 +208,8 @@ export async function startGame(roomId, room) {
   }
   await backend.updateState(roomId, (state) => {
     if (state.status !== 'lobby') return undefined;   // すでに開始済み
-    return createGameState(participants, (state.gameNo || 0) + 1);
+    // rulesOf は、難易度の記録がない古いルームなら既定の難易度（Lunatic）を返す
+    return createGameState(participants, (state.gameNo || 0) + 1, rulesOf(state).id);
   });
 }
 
@@ -248,10 +269,10 @@ export async function goNext(roomId, room) {
   });
 }
 
-/** 最終結果のあと、同じルームの待機画面に戻る（ホストの操作） */
+/** 最終結果のあと、同じルームの待機画面に戻る（ホストの操作）。難易度は前回のまま */
 export async function backToLobby(roomId) {
   return backend.updateState(roomId, (state) => {
     if (state.status !== 'finished') return undefined;
-    return createLobbyState(state.gameNo);
+    return createLobbyState(state.gameNo, state.difficulty);
   });
 }

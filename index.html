@@ -71,7 +71,7 @@
         <label class="field">
           <span class="field-label">プレイヤー名（ニックネーム）</span>
           <input id="input-create-name" class="input" type="text"
-                 placeholder="例：しょうた" autocomplete="nickname" enterkeyhint="done">
+                 placeholder="例：霊夢" autocomplete="nickname" enterkeyhint="done">
         </label>
         <p id="error-create" class="form-error" role="alert" hidden></p>
         <button id="btn-create" class="btn btn-primary" type="submit">ルームを作成する</button>
@@ -93,7 +93,7 @@
         <label class="field">
           <span class="field-label">プレイヤー名（ニックネーム）</span>
           <input id="input-join-name" class="input" type="text"
-                 placeholder="例：しょうた" autocomplete="nickname" enterkeyhint="done">
+                 placeholder="例：霊夢" autocomplete="nickname" enterkeyhint="done">
         </label>
         <p id="error-join" class="form-error" role="alert" hidden></p>
         <button id="btn-join" class="btn btn-primary" type="submit">参加する</button>
@@ -119,6 +119,13 @@
         <ul id="lobby-players" class="player-list"></ul>
       </div>
 
+      <!-- 難易度の選択（選べるのはホストだけ。全員に同じ内容が表示される） -->
+      <div class="card">
+        <h3 id="lobby-difficulty-title" class="card-title">難易度を選択</h3>
+        <ul id="lobby-difficulties" class="difficulty-list"></ul>
+        <p id="lobby-difficulty-note" class="difficulty-note"></p>
+      </div>
+
       <p id="lobby-message" class="hint"></p>
       <button id="btn-start" class="btn btn-primary" type="button" hidden>ゲーム開始</button>
       <button class="btn btn-ghost" type="button" data-action="rules">遊び方を見る</button>
@@ -133,7 +140,7 @@
         <div id="game-status" class="status-bar"></div>
         <div id="search-row" class="search-row" hidden>
           <input id="input-search" class="input input-search" type="search"
-                 placeholder="名前・よみがな・順位で検索" autocomplete="off"
+                 placeholder="名前・よみがなで検索（例：れいむ）" autocomplete="off"
                  autocorrect="off" spellcheck="false" enterkeyhint="search"
                  aria-label="キャラクターを検索">
         </div>
@@ -142,7 +149,7 @@
       <!-- 全員の合計点と状況（決定 / 選択中 / OUT / 切断中） -->
       <ul id="game-scoreboard" class="scoreboard"></ul>
 
-      <!-- A. まだ決定していないとき：キャラクター一覧 -->
+      <!-- A. まだ決定していないとき：キャラクター一覧（50音順。順位とポイントは表示しない） -->
       <div id="game-picker" class="picker" hidden>
         <p id="picker-hint" class="picker-hint"></p>
         <ul id="char-list" class="char-list"></ul>
@@ -183,6 +190,7 @@
     <!-- ========== 7. 最終結果画面 ========== -->
     <section id="screen-result" class="screen">
       <h2 class="result-heading">GAME RESULT</h2>
+      <p id="result-difficulty" class="result-difficulty"></p>
       <div id="result-winner" class="winner-card"></div>
       <ol id="result-ranking" class="ranking"></ol>
 
@@ -218,7 +226,10 @@
   <!-- ゲーム中のメニュー -->
   <dialog id="dialog-menu" class="dialog">
     <h3 class="dialog-title">メニュー</h3>
-    <p class="dialog-message">ルームID：<strong id="menu-room-id"></strong></p>
+    <p class="dialog-message">
+      ルームID：<strong id="menu-room-id"></strong><br>
+      難易度：<strong id="menu-difficulty"></strong>
+    </p>
     <div class="stack">
       <button class="btn btn-secondary" type="button" data-action="rules">遊び方を見る</button>
       <button id="btn-leave-game" class="btn btn-secondary" type="button">ゲームから抜ける</button>
@@ -226,18 +237,19 @@
     </div>
   </dialog>
 
-  <!-- 遊び方 -->
+  <!-- 遊び方（data-rule がついた数字は、難易度の設定に合わせて views.js の renderRules が入れ直す） -->
   <dialog id="dialog-rules" class="dialog">
-    <h3 class="dialog-title">遊び方</h3>
+    <h3 class="dialog-title">遊び方<span id="rules-difficulty" class="rules-difficulty"></span></h3>
     <ol class="rules">
       <li>毎ターン、東方キャラクターを<strong>1人</strong>選びます。</li>
       <li>そのキャラの<strong>人気投票の順位</strong>が、そのまま点数に加算されます。<br>
-        <span class="rules-example">例：博麗 霊夢は3位 → <b>+3</b></span></li>
-      <li>全員が決定すると、選択が<strong>一斉に公開</strong>されます。</li>
+        <span class="rules-example">例：10位のキャラクターを選ぶと <b>+10</b></span></li>
+      <li>選ぶときには、順位は<strong>表示されません</strong>。<br>
+        全員が決定すると、選択と順位が<strong>一斉に公開</strong>されます。</li>
       <li>同じターンに同じキャラを選んだ人が2人以上いたら、その全員が <b>+0</b>。<br>
         そのキャラは以降<strong>だれも選べなくなります</strong>。</li>
-      <li>合計が <b>150</b> を超えたら <b class="text-out">OUT</b>。ちょうど150はセーフ。</li>
-      <li><strong>5ターン</strong>終了時、OUTでない人のうち150に最も近い人が勝ち。<br>同じ点数なら全員が勝者です。</li>
+      <li>合計が <b data-rule="target">150</b> を超えたら <b class="text-out">OUT</b>。ちょうど<span data-rule="target">150</span>はセーフ。</li>
+      <li><strong><span data-rule="turns">5</span>ターン</strong>終了時、OUTでない人のうち<span data-rule="target">150</span>に最も近い人が勝ち。<br>同じ点数なら全員が勝者です。</li>
     </ol>
     <button class="btn btn-primary" type="button" data-action="close-dialog">とじる</button>
   </dialog>

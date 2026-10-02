@@ -5,11 +5,51 @@
 // ゲーム全体に反映されます。
 // ============================================================
 
-/** 目標値。これを「超えたら」OUT（ちょうど150はセーフ） */
-export const TARGET_SCORE = 150;
+/**
+ * 難易度ごとの設定。
+ *
+ * いま遊べるのは Lunatic だけです。
+ * Easy / Normal / Hard は、ルールが決まったら
+ *   1. available を true にする
+ *   2. targetScore（目標値）と maxTurns（ターン数）を書く
+ * の2つで選べるようになります。（くわしくは docs/DESIGN.md の「難易度」を参照）
+ *
+ *   label       … 画面に表示する名前
+ *   available   … true なら選べる。false のあいだは「Coming Soon」と表示される
+ *   targetScore … 目標値。これを「超えたら」OUT（ちょうどはセーフ）
+ *   maxTurns    … ターン数
+ *
+ * 画面には、ここに書いた順番で並びます。
+ */
+export const DIFFICULTY_SETTINGS = {
+  easy: {
+    label: 'Easy',
+    available: false,
+    // 今後設定
+  },
 
-/** ターン数 */
-export const MAX_TURNS = 5;
+  normal: {
+    label: 'Normal',
+    available: false,
+    // 今後設定
+  },
+
+  hard: {
+    label: 'Hard',
+    available: false,
+    // 今後設定
+  },
+
+  lunatic: {
+    label: 'Lunatic',
+    available: true,
+    targetScore: 150,
+    maxTurns: 5,
+  },
+};
+
+/** ルームを作った直後に選ばれている難易度（上の設定の名前で指定する） */
+export const DEFAULT_DIFFICULTY = 'lunatic';
 
 /** ゲームを始められる最少人数 */
 export const MIN_PLAYERS = 2;
@@ -29,8 +69,8 @@ export const ROOM_ID_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 /** プレイヤー名の最大文字数 */
 export const NAME_MAX_LENGTH = 10;
 
-/** 画面に表示する人気投票の名前（キャラクターの確認欄に「第22回人気投票：3位」のように出る） */
-export const POLL_LABEL = '第22回人気投票';
+/** プレイヤー名のデフォルト値（入力欄に最初から入っていて、空欄のまま進んだときにも使われる） */
+export const DEFAULT_PLAYER_NAME = '霊夢';
 
 /** キャラクターデータの場所（index.html から見た相対パス） */
 export const CHARACTERS_URL = './data/characters.json';

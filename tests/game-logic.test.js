@@ -2,11 +2,17 @@
 // game-logic.test.js … ゲームルールのテスト
 //
 // tests/index.html をブラウザで開くと実行され、結果が画面に表示されます。
-// ルール（game-logic.js）を書き換えたら、ここで壊れていないか確認できます。
+// ルール（game-logic.js）や一覧の並び順（util.js）を書き換えたら、
+// ここで壊れていないか確認できます。
 // ============================================================
 
-import { TARGET_SCORE, MAX_TURNS } from '../js/config.js';
+import { DIFFICULTY_SETTINGS, DEFAULT_DIFFICULTY } from '../js/config.js';
 import {
+  isDifficultyAvailable,
+  difficultyOf,
+  rulesOf,
+  listDifficulties,
+  withDifficulty,
   createGameState,
   createLobbyState,
   roundKeyOf,
@@ -18,6 +24,7 @@ import {
   advance,
   judgeResult,
 } from '../js/game-logic.js';
+import { kanaRowOf, compareKana, prepareCharacters, searchCharacters } from '../js/util.js';
 
 // ---- とても小さなテスト用の道具 ------------------------------------
 const results = [];
@@ -71,7 +78,7 @@ function stateWithTotals(totals, turn = 1) {
   state.turn = turn;
   for (const [uid, total] of Object.entries(totals)) {
     state.scores[uid].total = total;
-    state.scores[uid].out = total > TARGET_SCORE;
+    state.scores[uid].out = total > rulesOf(state).targetScore;
   }
   return state;
 }
@@ -211,11 +218,11 @@ test('決定待ち: OUTの人を除いた全員が決定したら「全員完了
 // ---- ターン進行のテスト --------------------------------------------
 test('進行: 5ターン目の公開が終わるとゲーム終了', () => {
   let state = createGameState(players(2), 1);
-  for (let turn = 1; turn <= MAX_TURNS; turn++) {
+  for (let turn = 1; turn <= 5; turn++) {
     assertEqual(state.turn, turn);
     assertEqual(state.status, 'playing');
     state = resolveTurn(state, { A: KOISHI.id, B: MARISA.id }, charById);
-    assertEqual(isLastReveal(state), turn === MAX_TURNS, `${turn}ターン目`);
+    assertEqual(isLastReveal(state), turn === 5, `${turn}ターン目`);
     state = advance(state);
   }
   assertEqual(state.status, 'finished');
@@ -232,8 +239,8 @@ test('進行: 全員OUTになったら、5ターン目を待たずに終了', ()
   assertEqual(state.status, 'finished');
 });
 
-test('進行: 待機状態は lobby', () => {
-  assertEqual(createLobbyState(2), { status: 'lobby', gameNo: 2 });
+test('進行: 待機状態は lobby（難易度は既定の Lunatic）', () => {
+  assertEqual(createLobbyState(2), { status: 'lobby', gameNo: 2, difficulty: 'lunatic' });
 });
 
 // ---- 最終結果のテスト ----------------------------------------------
@@ -255,6 +262,136 @@ test('結果: 全員OUTなら勝者なし', () => {
   const result = judgeResult(stateWithTotals({ A: 151, B: 200 }));
   assertEqual(result.winners, []);
   assertEqual(result.ranking.every((p) => p.out && p.place === null), true);
+});
+
+// ---- 難易度のテスト ------------------------------------------------
+test('難易度: Lunatic は目標150・5ターン。いま選べるのは Lunatic だけ', () => {
+  assertEqual(difficultyOf('lunatic'), {
+    id: 'lunatic',
+    label: 'Lunatic',
+    available: true,
+    targetScore: 150,
+    maxTurns: 5,
+  });
+  assertEqual(
+    listDifficulties().map((d) => [d.label, d.available]),
+    [['Easy', false], ['Normal', false], ['Hard', false], ['Lunatic', true]]
+  );
+  assertEqual(DEFAULT_DIFFICULTY, 'lunatic');
+});
+
+test('難易度: Easy / Normal / Hard は準備中で、ゲームを開始できない', () => {
+  for (const id of ['easy', 'normal', 'hard']) {
+    assertEqual(isDifficultyAvailable(id), false, id);
+    assertThrows(() => createGameState(players(2), 1, id), id);
+  }
+});
+
+test('難易度: ゲーム開始時に記録され、ターンが進んでも変わらない', () => {
+  let state = createGameState(players(2), 1, 'lunatic');
+  assertEqual(state.difficulty, 'lunatic');
+  state = advance(resolveTurn(state, { A: KOISHI.id, B: MARISA.id }, charById));
+  assertEqual(state.turn, 2);
+  assertEqual(state.difficulty, 'lunatic');
+  assertEqual(rulesOf(state).label, 'Lunatic');
+});
+
+test('難易度: 変更できるのは待機中だけ（ゲーム開始後と、準備中の難易度は不可）', () => {
+  assertEqual(withDifficulty(createLobbyState(0), 'lunatic'), { status: 'lobby', gameNo: 0, difficulty: 'lunatic' });
+  assertEqual(withDifficulty(createLobbyState(0), 'easy'), undefined, '準備中');
+  assertEqual(withDifficulty(createGameState(players(2), 1), 'lunatic'), undefined, 'ゲーム中');
+});
+
+test('難易度: 難易度の記録がない古いデータは Lunatic として扱う', () => {
+  const state = createGameState(players(2), 1);
+  delete state.difficulty;
+  assertEqual(rulesOf(state).id, 'lunatic');
+  assertEqual(rulesOf(undefined).targetScore, 150);
+});
+
+test('難易度: 設定を1つ足すだけで、別の目標値・ターン数のゲームになる（将来の追加の確認）', () => {
+  // 目標10・2ターンの難易度を、このテストのあいだだけ足す
+  DIFFICULTY_SETTINGS.sample = { label: 'Sample', available: true, targetScore: 10, maxTurns: 2 };
+  try {
+    const eleven = characters.find((c) => c.rank === 11);
+    let state = createGameState(players(2), 1, 'sample');
+
+    // 1ターン目: A は +5（合計5）、B は +11（目標10を超えるのでOUT）
+    state = resolveTurn(state, { A: REMILIA.id, B: eleven.id }, charById);
+    assertEqual([state.scores.A.out, state.scores.B.out], [false, true]);
+    assertEqual(isLastReveal(state), false, '1ターン目では終わらない');
+
+    // 2ターン目: A は +5 で合計10（ちょうどはセーフ）。2ターンで終了する
+    state = resolveTurn(advance(state), { A: REMILIA.id }, charById);
+    assertEqual([state.scores.A.total, state.scores.A.out], [10, false]);
+    assertEqual(isLastReveal(state), true, '2ターンで終了');
+    assertEqual(judgeResult(advance(state)).ranking[0].diff, 0, '目標10との差');
+  } finally {
+    delete DIFFICULTY_SETTINGS.sample;
+  }
+});
+
+// ---- 一覧の並び順と検索のテスト ------------------------------------
+// 画面と同じ準備（50音順に並べ、検索用の文字列をつける）をしたキャラクター一覧
+const sorted = prepareCharacters(structuredClone(characters));
+const sortedNames = sorted.map((c) => c.name);
+const rowOf = (name) => sorted.find((c) => c.name === name).kanaRow;
+const find = (query) => searchCharacters(sorted, query).map((c) => c.name);
+
+test('並び順: 50音の「行」を判定する（濁点・半濁点・カタカナも同じ行）', () => {
+  assertEqual(kanaRowOf('はくれい れいむ'), 'は');
+  assertEqual(kanaRowOf('パチュリー'), 'は');
+  assertEqual(kanaRowOf('ぎょくと'), 'か');
+  assertEqual(kanaRowOf('ドレミー'), 'た');
+  assertEqual(kanaRowOf('わかさぎひめ'), 'わ');
+});
+
+test('並び順: よみがなの50音順に並ぶ', () => {
+  const readings = ['はくれいれいむ', 'きりさめまりさ', 'いぶきすいか', 'ありす', 'しゃめいまるあや', 'いぬばしりもみじ'];
+  assertEqual(
+    [...readings].sort(compareKana),
+    ['ありす', 'いぬばしりもみじ', 'いぶきすいか', 'きりさめまりさ', 'しゃめいまるあや', 'はくれいれいむ']
+  );
+});
+
+test('並び順: 一覧は順位順ではなく50音順（225人すべてに行がつく）', () => {
+  assertEqual(sorted.length, 225);
+  assertEqual(sorted.filter((c) => c.kanaRow === 'その他').map((c) => c.name), [], '行が決まらないキャラクター');
+
+  // 見出しは あ→か→さ→…→わ の順に、1回ずつ現れる
+  const headers = sorted.map((c) => c.kanaRow).filter((row, index, all) => row !== all[index - 1]);
+  assertEqual(headers, ['あ', 'か', 'さ', 'た', 'な', 'は', 'ま', 'や', 'ら', 'わ']);
+
+  // 順位1位のキャラクターが先頭に来ていない（＝順位順ではない）
+  assertEqual(sortedNames[0] === KOISHI.name, false);
+
+  const position = (name) => sortedNames.indexOf(name);
+  assertEqual(position('アリス・マーガトロイド') < position('犬走 椛'), true, 'ありす → いぬばしり');
+  assertEqual(position('犬走 椛') < position('伊吹 萃香'), true, 'いぬばしり → いぶき');
+  assertEqual(position('伊吹 萃香') < position('霧雨 魔理沙'), true, 'いぶき → きりさめ');
+  assertEqual(position('霧雨 魔理沙') < position('博麗 霊夢'), true, 'きりさめ → はくれい');
+  assertEqual(
+    [rowOf('アリス・マーガトロイド'), rowOf('霧雨 魔理沙'), rowOf('射命丸 文'), rowOf('博麗 霊夢')],
+    ['あ', 'か', 'さ', 'は']
+  );
+});
+
+test('検索: 名前でも、よみがなでも見つかる', () => {
+  assertEqual(find('霊夢'), ['博麗 霊夢']);
+  assertEqual(find('れいむ'), ['博麗 霊夢']);
+  assertEqual(find('博麗霊夢'), ['博麗 霊夢'], '空白なしでも');
+  assertEqual(find('まりさ'), ['霧雨 魔理沙']);
+  assertEqual(find('フラン'), ['フランドール・スカーレット']);
+  assertEqual(find('ふらん'), ['フランドール・スカーレット'], 'ひらがなでカタカナの名前');
+  assertEqual(find('').length, 225, '空なら全員');
+  assertEqual(find('ぜったいにいない'), []);
+});
+
+test('検索: 順位の数字では見つからない（選ぶ段階では順位を隠すため）', () => {
+  assertEqual(find('3'), [], '3位のキャラクターは出ない');
+  assertEqual(find('150'), []);
+  // 名前に数字が入っているキャラクターは、名前として見つかる
+  assertEqual(find('62'), ['C62サークルカットの娘']);
 });
 
 // ---- 画面への表示 --------------------------------------------------

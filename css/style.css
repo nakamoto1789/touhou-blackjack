@@ -384,6 +384,14 @@ body[data-screen="game"] .toast {
   font-size: 14px;
   color: var(--ink-soft);
 }
+/* 「遊び方」の見出しの横に出す難易度（例：（Lunatic）） */
+.rules-difficulty {
+  margin-left: 6px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
 
 /* ---------- 4. トップ／作成／参加／待機 ---------- */
 .loading {
@@ -484,6 +492,91 @@ body[data-screen="game"] .toast {
   color: #a39b93;
 }
 
+/* 難易度の選択（待機画面） */
+.difficulty-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.difficulty-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 12px;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+/* ホスト以外の人には「見るだけ」で表示する（押せないが、色は薄くしない） */
+.difficulty-row:disabled {
+  cursor: default;
+}
+/* ○ ● の丸印 */
+.difficulty-radio {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border: 2px solid #b9b1a6;
+  border-radius: 50%;
+}
+.difficulty-name {
+  flex: 1;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+/* 「PLAY」「Coming Soon」の札 */
+.difficulty-tag {
+  flex: none;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: #fff;
+  background: var(--red);
+  border-radius: 999px;
+}
+/* 準備中（Coming Soon）の難易度 */
+.difficulty-row.is-soon {
+  color: #a39b93;
+  background: var(--gray-soft);
+  border-style: dashed;
+}
+.difficulty-row.is-soon .difficulty-tag {
+  background: #8b8580;
+}
+.difficulty-row.is-soon .difficulty-radio {
+  background: transparent;
+}
+/* いま選ばれている難易度 */
+.difficulty-row.is-selected {
+  background: var(--red-soft);
+  border-color: var(--red);
+}
+.difficulty-row.is-selected .difficulty-radio {
+  border-color: var(--red);
+  box-shadow: inset 0 0 0 3px #fff;
+  background: var(--red);
+}
+.difficulty-note {
+  margin: 10px 0 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--ink-soft);
+}
+
 /* ---------- 5. ゲーム画面 ---------- */
 .screen-game.active {
   gap: 0;
@@ -524,7 +617,26 @@ body[data-screen="game"] .toast {
 .status-remain {
   margin-right: auto;
   font-size: 13px;
+  white-space: nowrap;
   color: #d9cfc4;
+}
+/* 難易度の札（例：Lunatic） */
+.status-difficulty {
+  flex: none;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: #2b2420;
+  background: #f1d9a0;
+  border-radius: 999px;
+}
+/* とても幅のせまい画面では入りきらないので、札を出さない（メニューで確認できる） */
+@media (max-width: 345px) {
+  .status-difficulty {
+    display: none;
+  }
 }
 .status-menu {
   flex: none;
@@ -652,13 +764,27 @@ body[data-screen="game"] .toast {
   padding: 0 10px 14px;
   list-style: none;
 }
+/* 50音の見出し（「あ」「か」「さ」…） */
+.char-header {
+  margin-top: 8px;
+  padding: 2px 6px;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--red-deep);
+  border-bottom: 2px solid var(--line);
+}
+.char-header:first-child {
+  margin-top: 0;
+}
+/* 1人分の行。表示するのは名前だけ（順位やポイントは、ここには出さない） */
 .char-row {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 54px;
-  padding: 8px 12px 8px 6px;
+  min-height: 52px;
+  padding: 8px 14px;
   font: inherit;
   text-align: left;
   color: inherit;
@@ -668,40 +794,11 @@ body[data-screen="game"] .toast {
   cursor: pointer;
   touch-action: manipulation;
 }
-.char-rank {
-  flex: none;
-  width: 3.7em;
-  font-size: 12px;
-  text-align: center;
-  color: var(--ink-soft);
-}
-.char-rank b {
-  font-size: 19px;
-  color: var(--red-deep);
-  font-variant-numeric: tabular-nums;
-}
 .char-name {
   flex: 1;
   font-size: 16px;
   font-weight: 600;
   line-height: 1.35;
-}
-.char-point {
-  flex: none;
-  font-size: 17px;
-  font-weight: 800;
-  line-height: 1.1;
-  text-align: right;
-  color: var(--green);
-  font-variant-numeric: tabular-nums;
-}
-.char-point small {
-  display: block;
-  font-size: 10px;
-}
-/* 選ぶと150を超えるキャラクター */
-.char-row.is-over .char-point {
-  color: var(--red);
 }
 /* タップして選んでいるキャラクター */
 .char-row.is-selected {
@@ -718,9 +815,6 @@ body[data-screen="game"] .toast {
 }
 .char-row.is-banned .char-name {
   text-decoration: line-through;
-}
-.char-row.is-banned .char-rank b {
-  color: #a39b93;
 }
 .char-tag {
   flex: none;
@@ -764,28 +858,12 @@ body[data-screen="game"] .toast {
   color: var(--ink-soft);
 }
 .pick-name {
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 800;
 }
-.pick-detail {
-  font-size: 14px;
-}
-.pick-detail b {
-  font-size: 15px;
-  color: var(--red-deep);
-}
-.pick-after {
+.pick-note {
   font-size: 13px;
   color: var(--ink-soft);
-}
-.pick-after b {
-  font-size: 15px;
-  color: var(--ink);
-}
-.pick-after.is-over,
-.pick-after.is-over b {
-  font-weight: 700;
-  color: var(--red);
 }
 
 /* 決定したあとの待機表示 */
@@ -980,6 +1058,14 @@ body[data-screen="game"] .toast {
   letter-spacing: 0.2em;
   text-align: center;
   color: var(--red-deep);
+}
+.result-difficulty {
+  margin: -10px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--gold-deep);
 }
 .winner-card {
   padding: 18px 16px;

@@ -13,6 +13,10 @@ import {
   rulesOf,
   listDifficulties,
   withDifficulty,
+  isCharacterUsable,
+  listUsableCharacters,
+  pointsFor,
+  isOver,
   createGameState,
   createLobbyState,
   roundKeyOf,
@@ -72,9 +76,9 @@ function players(n) {
   return 'ABCDE'.slice(0, n).split('').map((uid) => ({ uid, name: `プレイヤー${uid}` }));
 }
 
-/** 合計点を直接指定した状態を作る（テストを短く書くため） */
-function stateWithTotals(totals, turn = 1) {
-  const state = createGameState(players(Object.keys(totals).length), 1);
+/** 合計点を直接指定した状態を作る（テストを短く書くため）。難易度を省くと Lunatic */
+function stateWithTotals(totals, turn = 1, difficulty = 'lunatic') {
+  const state = createGameState(players(Object.keys(totals).length), 1, difficulty);
   state.turn = turn;
   for (const [uid, total] of Object.entries(totals)) {
     state.scores[uid].total = total;
@@ -265,23 +269,27 @@ test('結果: 全員OUTなら勝者なし', () => {
 });
 
 // ---- 難易度のテスト ------------------------------------------------
-test('難易度: Lunatic は目標150・5ターン。いま選べるのは Lunatic だけ', () => {
+test('難易度: Lunatic は目標150・5ターン・全キャラクター（Hard を足しても変わらない）', () => {
   assertEqual(difficultyOf('lunatic'), {
     id: 'lunatic',
     label: 'Lunatic',
     available: true,
     targetScore: 150,
     maxTurns: 5,
+    maxCharacterRank: null,
   });
-  assertEqual(
-    listDifficulties().map((d) => [d.label, d.available]),
-    [['Easy', false], ['Normal', false], ['Hard', false], ['Lunatic', true]]
-  );
   assertEqual(DEFAULT_DIFFICULTY, 'lunatic');
 });
 
-test('難易度: Easy / Normal / Hard は準備中で、ゲームを開始できない', () => {
-  for (const id of ['easy', 'normal', 'hard']) {
+test('難易度: 選べるのは Hard と Lunatic。Easy / Normal は準備中', () => {
+  assertEqual(
+    listDifficulties().map((d) => [d.label, d.available]),
+    [['Easy', false], ['Normal', false], ['Hard', true], ['Lunatic', true]]
+  );
+});
+
+test('難易度: Easy / Normal は準備中で、ゲームを開始できない', () => {
+  for (const id of ['easy', 'normal']) {
     assertEqual(isDifficultyAvailable(id), false, id);
     assertThrows(() => createGameState(players(2), 1, id), id);
   }
@@ -297,9 +305,10 @@ test('難易度: ゲーム開始時に記録され、ターンが進んでも変
 });
 
 test('難易度: 変更できるのは待機中だけ（ゲーム開始後と、準備中の難易度は不可）', () => {
-  assertEqual(withDifficulty(createLobbyState(0), 'lunatic'), { status: 'lobby', gameNo: 0, difficulty: 'lunatic' });
+  assertEqual(withDifficulty(createLobbyState(0), 'hard'), { status: 'lobby', gameNo: 0, difficulty: 'hard' });
+  assertEqual(withDifficulty(createLobbyState(0, 'hard'), 'lunatic'), { status: 'lobby', gameNo: 0, difficulty: 'lunatic' });
   assertEqual(withDifficulty(createLobbyState(0), 'easy'), undefined, '準備中');
-  assertEqual(withDifficulty(createGameState(players(2), 1), 'lunatic'), undefined, 'ゲーム中');
+  assertEqual(withDifficulty(createGameState(players(2), 1, 'hard'), 'lunatic'), undefined, 'ゲーム中');
 });
 
 test('難易度: 難易度の記録がない古いデータは Lunatic として扱う', () => {
@@ -392,6 +401,140 @@ test('検索: 順位の数字では見つからない（選ぶ段階では順位
   assertEqual(find('150'), []);
   // 名前に数字が入っているキャラクターは、名前として見つかる
   assertEqual(find('62'), ['C62サークルカットの娘']);
+});
+
+// ---- Hard のテスト（目標21・5ターン・人気投票50位以内）---------------
+const HARD = difficultyOf('hard');
+const LUNATIC = difficultyOf('lunatic');
+const byRank = (rank) => characters.find((c) => c.rank === rank);     // その順位のキャラクター
+const hardList = listUsableCharacters(HARD, sorted);                  // 画面に出る「Hard の一覧」
+const findInHard = (query) => searchCharacters(hardList, query).map((c) => c.name);
+
+test('Hard: 目標21・5ターン・人気投票50位以内', () => {
+  assertEqual(HARD, {
+    id: 'hard',
+    label: 'Hard',
+    available: true,
+    targetScore: 21,
+    maxTurns: 5,
+    maxCharacterRank: 50,
+  });
+});
+
+test('Hard: 使えるのは1〜50位の50人だけ（Lunatic は225人全員）', () => {
+  assertEqual(hardList.length, 50);
+  assertEqual(hardList.every((c) => c.rank >= 1 && c.rank <= 50), true);
+  assertEqual(isCharacterUsable(HARD, byRank(50)), true, '50位');
+  assertEqual(isCharacterUsable(HARD, byRank(51)), false, '51位');
+  assertEqual(listUsableCharacters(LUNATIC, sorted).length, 225);
+  assertEqual(isCharacterUsable(LUNATIC, byRank(225)), true, 'Lunatic は最下位も使える');
+});
+
+test('Hard: 一覧は50位以内だけを50音順に並べたもの（順位順ではない）', () => {
+  const readings = hardList.map((c) => c.sortKey);
+  assertEqual(readings, [...readings].sort(compareKana), '50音順');
+  const ranks = hardList.map((c) => c.rank);
+  const inRankOrder = JSON.stringify(ranks) === JSON.stringify([...ranks].sort((a, b) => a - b));
+  assertEqual(inRankOrder, false, '順位順には並んでいない');
+});
+
+test('Hard: 名前・よみがなで検索できる。51位以下は検索しても出ない', () => {
+  assertEqual(findInHard('霊夢'), ['博麗 霊夢']);
+  assertEqual(findInHard('れいむ'), ['博麗 霊夢']);
+  const below = byRank(51);
+  assertEqual(findInHard(below.name), [], '51位を名前で');
+  assertEqual(findInHard(below.yomi), [], '51位をよみがなで');
+  assertEqual(find(below.name), [below.name], 'Lunatic の一覧では見つかる');
+});
+
+test('Hard: 20はセーフ、21ちょうどもセーフ、22はOUT', () => {
+  const next = resolveTurn(
+    stateWithTotals({ A: 18, B: 20, C: 10 }, 1, 'hard'),
+    { A: REIMU.id, B: MARISA.id, C: byRank(10).id },   // +3 / +2 / +10
+    charById
+  );
+  assertEqual([next.scores.A.total, next.scores.A.out], [21, false], '21');
+  assertEqual([next.scores.B.total, next.scores.B.out], [22, true], '22');
+  assertEqual([next.scores.C.total, next.scores.C.out], [20, false], '20');
+  assertEqual([isOver(HARD, 21), isOver(HARD, 22), isOver(LUNATIC, 22)], [false, true, false]);
+});
+
+test('Hard: 加点は順位そのまま。22位以下を選ぶと、1ターン目でもOUT', () => {
+  const next = resolveTurn(
+    createGameState(players(2), 1, 'hard'),
+    { A: byRank(21).id, B: byRank(22).id },
+    charById
+  );
+  assertEqual([next.scores.A.total, next.scores.A.out], [21, false]);
+  assertEqual([next.scores.B.total, next.scores.B.out], [22, true]);
+  assertEqual(pointsFor(HARD, byRank(21)), 21);
+});
+
+test('Hard: 依頼の例1（A21 B20 C18 D23 E20 → Aが勝者、DはOUT）', () => {
+  const result = judgeResult(stateWithTotals({ A: 21, B: 20, C: 18, D: 23, E: 20 }, 5, 'hard'));
+  assertEqual(result.winners, ['A']);
+  assertEqual(result.ranking.map((p) => p.uid), ['A', 'B', 'E', 'C', 'D'], '並び順');
+  assertEqual(result.ranking.map((p) => p.place), [1, 2, 2, 4, null], '順位');
+  assertEqual(result.ranking.map((p) => p.diff), [0, 1, 1, 3, null], '21との差');
+});
+
+test('Hard: 依頼の例2（A20 B19 C20 D22 E17 → AとCが同率勝者）', () => {
+  const result = judgeResult(stateWithTotals({ A: 20, B: 19, C: 20, D: 22, E: 17 }, 5, 'hard'));
+  assertEqual(result.winners, ['A', 'C']);
+  assertEqual(result.ranking.map((p) => p.uid), ['A', 'C', 'B', 'E', 'D'], '並び順');
+  assertEqual(result.ranking.map((p) => p.isWinner), [true, true, false, false, false]);
+});
+
+test('Hard: 重複は全員+0になり、次のターンから使用禁止（Lunatic と同じ）', () => {
+  let state = resolveTurn(
+    createGameState(players(3), 1, 'hard'),
+    { A: REIMU.id, B: REIMU.id, C: KOISHI.id },
+    charById
+  );
+  assertEqual([state.scores.A.total, state.scores.B.total, state.scores.C.total], [0, 0, 1]);
+  assertEqual(isBanned(state, REIMU.id), true);
+
+  state = resolveTurn(advance(state), { A: REIMU.id, B: MARISA.id, C: REMILIA.id }, charById);
+  assertEqual(state.history.t2.A.outcome, 'invalid', '使用禁止のキャラは無効');
+  assertEqual([state.scores.A.total, state.scores.B.total, state.scores.C.total], [0, 2, 6]);
+});
+
+test('Hard: 51位以下のキャラクターは、送られてきても無効（+0。重複にも数えない）', () => {
+  const below = byRank(51);
+  const next = resolveTurn(
+    createGameState(players(3), 1, 'hard'),
+    { A: below.id, B: below.id, C: KOISHI.id },
+    charById
+  );
+  assertEqual(
+    [next.history.t1.A.outcome, next.history.t1.B.outcome, next.history.t1.C.outcome],
+    ['invalid', 'invalid', 'ok']
+  );
+  assertEqual([next.scores.A.total, next.scores.B.total], [0, 0]);
+  assertEqual(isBanned(next, below.id), false, '使用禁止にもならない');
+});
+
+test('Hard: 5ターンで終了し、21に近い人が勝者', () => {
+  let state = createGameState(players(2), 1, 'hard');
+  for (let turn = 1; turn <= 5; turn++) {
+    assertEqual(state.status, 'playing', `${turn}ターン目`);
+    state = resolveTurn(state, { A: KOISHI.id, B: MARISA.id }, charById);   // 毎ターン +1 / +2
+    assertEqual(isLastReveal(state), turn === 5, `${turn}ターン目`);
+    state = advance(state);
+  }
+  assertEqual(state.status, 'finished');
+  assertEqual([state.scores.A.total, state.scores.B.total], [5, 10]);
+  assertEqual(judgeResult(state).winners, ['B']);
+});
+
+test('Lunatic: 51位以下のキャラクターも使え、目標は150のまま', () => {
+  const next = resolveTurn(
+    createGameState(players(2), 1, 'lunatic'),
+    { A: byRank(51).id, B: byRank(100).id },
+    charById
+  );
+  assertEqual([next.history.t1.A.outcome, next.scores.A.total, next.scores.A.out], ['ok', 51, false]);
+  assertEqual([next.scores.B.total, next.scores.B.out], [100, false], '100点でもOUTにならない');
 });
 
 // ---- 画面への表示 --------------------------------------------------

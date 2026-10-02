@@ -6,18 +6,20 @@
 // ============================================================
 
 /**
- * 難易度ごとの設定。
+ * 難易度ごとの設定。ルールは難易度ごとに別々に持っています。
  *
- * いま遊べるのは Lunatic だけです。
- * Easy / Normal / Hard は、ルールが決まったら
+ * いま遊べるのは Hard と Lunatic です。
+ * Easy / Normal は、ルールが決まったら
  *   1. available を true にする
- *   2. targetScore（目標値）と maxTurns（ターン数）を書く
- * の2つで選べるようになります。（くわしくは docs/DESIGN.md の「難易度」を参照）
+ *   2. 下の3つ（targetScore / maxTurns / maxCharacterRank）を書く
+ * だけで選べるようになります。（くわしくは docs/DESIGN.md の「難易度」を参照）
  *
- *   label       … 画面に表示する名前
- *   available   … true なら選べる。false のあいだは「Coming Soon」と表示される
- *   targetScore … 目標値。これを「超えたら」OUT（ちょうどはセーフ）
- *   maxTurns    … ターン数
+ *   label            … 画面に表示する名前
+ *   available        … true なら選べる。false のあいだは「Coming Soon」と表示される
+ *   targetScore      … 目標値。これを「超えたら」OUT（ちょうどはセーフ）
+ *   maxTurns         … ターン数
+ *   maxCharacterRank … 使えるキャラクターの範囲。50 なら「人気投票50位以内」だけ。
+ *                       null なら制限なし（全キャラクター）
  *
  * 画面には、ここに書いた順番で並びます。
  */
@@ -36,8 +38,10 @@ export const DIFFICULTY_SETTINGS = {
 
   hard: {
     label: 'Hard',
-    available: false,
-    // 今後設定
+    available: true,
+    targetScore: 21,
+    maxTurns: 5,
+    maxCharacterRank: 50,
   },
 
   lunatic: {
@@ -45,6 +49,7 @@ export const DIFFICULTY_SETTINGS = {
     available: true,
     targetScore: 150,
     maxTurns: 5,
+    maxCharacterRank: null,
   },
 };
 

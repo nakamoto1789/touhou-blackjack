@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#7d1a22">
   <meta name="format-detection" content="telephone=no">
   <title>東方人気投票ブラックジャック（非公式ファンゲーム）</title>
-  <meta name="description" content="第22回東方Project人気投票の順位を点数にして、150を超えずに150を目指す、2〜5人用の非公式ファンゲームです。">
+  <meta name="description" content="第22回東方Project人気投票の順位を点数にして、目標の点数を超えずにぴったりを目指す、2〜5人用の非公式ファンゲームです。">
   <!-- タブに出る小さなアイコン（下の陰陽玉マークと同じ図形を、画像ファイルなしで指定している） -->
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='47' fill='%23fff' stroke='%237d1a22' stroke-width='5'/%3E%3Cpath d='M50 3A47 47 0 0 1 50 97A23.5 23.5 0 0 0 50 50A23.5 23.5 0 0 1 50 3Z' fill='%23b3202a'/%3E%3Ccircle cx='50' cy='26.5' r='7' fill='%23fff'/%3E%3Ccircle cx='50' cy='73.5' r='7' fill='%23b3202a'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./css/style.css">
@@ -49,7 +49,9 @@
         </svg>
         <p class="hero-sub">第22回東方Project人気投票</p>
         <h1 class="hero-title">東方人気投票<br>ブラックジャック</h1>
-        <p class="hero-lead">順位がそのまま点数になる。<br><strong>150</strong> を超えずに <strong>150</strong> を目指せ。</p>
+        <p class="hero-lead">順位がそのまま点数になる。<br><strong>目標の点数</strong>を超えずに、<strong>ぴったり</strong>を目指せ。</p>
+        <!-- 遊べる難易度と目標値（js/config.js の設定から、views.js の renderTop が入れる） -->
+        <p id="hero-difficulties" class="hero-difficulties"></p>
       </header>
 
       <div class="stack">
@@ -128,8 +130,9 @@
 
       <p id="lobby-message" class="hint"></p>
       <button id="btn-start" class="btn btn-primary" type="button" hidden>ゲーム開始</button>
+      <!-- ルームから退出して、最初の画面（トップ画面）に戻る -->
+      <button id="btn-leave-lobby" class="btn btn-secondary" type="button">最初の画面に戻る</button>
       <button class="btn btn-ghost" type="button" data-action="rules">遊び方を見る</button>
-      <button id="btn-leave-lobby" class="btn btn-ghost" type="button">退出する</button>
     </section>
 
     <!-- ========== 5. ゲーム画面（キャラクター選択） ========== -->
@@ -241,7 +244,8 @@
   <dialog id="dialog-rules" class="dialog">
     <h3 class="dialog-title">遊び方<span id="rules-difficulty" class="rules-difficulty"></span></h3>
     <ol class="rules">
-      <li>毎ターン、東方キャラクターを<strong>1人</strong>選びます。</li>
+      <li>毎ターン、東方キャラクターを<strong>1人</strong>選びます。<br>
+        <span id="rules-range" class="rules-example"></span></li>
       <li>そのキャラの<strong>人気投票の順位</strong>が、そのまま点数に加算されます。<br>
         <span class="rules-example">例：10位のキャラクターを選ぶと <b>+10</b></span></li>
       <li>選ぶときには、順位は<strong>表示されません</strong>。<br>

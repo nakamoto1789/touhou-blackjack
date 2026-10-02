@@ -217,12 +217,13 @@ Firebase のトランザクションは、「読んでから書くまでの間�
 | 7 | 最終結果 | `screen-result` | `status` が `finished` |
 
 待機画面（4）には「難易度を選択」の一覧があります。選べるのはホストだけで、ほかの人には同じ一覧が見るだけの状態で表示されます。
+また「最初の画面に戻る」ボタンがあり、押すとルームから退出してトップ画面（1）に戻ります（9章）。
 
 ゲーム画面（5）は、自分の状況で中身が変わります。
 
 | 自分の状況 | 表示 |
 |---|---|
-| まだ決定していない | 検索欄＋キャラクター一覧（50音順）＋下の決定欄 |
+| まだ決定していない | 検索欄＋キャラクター一覧（その難易度で使える人だけ。50音順）＋下の決定欄 |
 | 決定した | 「あなたの選択」と、ほかの人を待つ表示 |
 | OUTになった | 観戦の表示 |
 
@@ -330,7 +331,7 @@ Firebase の `onDisconnect` という機能で、「接続が切れたら、サ�
 
 ### `js/config.js` ― 設定値
 
-難易度ごとの設定（`DIFFICULTY_SETTINGS`：目標値・ターン数）、人数 2〜5、
+難易度ごとの設定（`DIFFICULTY_SETTINGS`：目標値・ターン数・使えるキャラクターの範囲）、人数 2〜5、
 プレイヤー名のデフォルト（霊夢）などを1か所にまとめています。
 ルールの数字を変えたいときは、ここだけ書き換えます。
 
@@ -343,6 +344,10 @@ Firebase の `onDisconnect` という機能で、「接続が切れたら、サ�
 | `rulesOf(状態)` | そのゲームの難易度の設定（目標値・ターン数など）を返す |
 | `listDifficulties()` | 画面に並べる難易度の一覧を返す |
 | `withDifficulty(状態, 難易度)` | 待機中に難易度を変えた状態を返す（ゲーム開始後は変えない） |
+| `isCharacterUsable(ルール, キャラ)` | そのキャラクターを、その難易度で使えるか（Hard なら50位以内か） |
+| `listUsableCharacters(ルール, 一覧)` | その難易度で使えるキャラクターだけを取り出す |
+| `pointsFor(ルール, キャラ)` | 選んだときの加点（いまはどの難易度も、順位そのまま） |
+| `isOver(ルール, 合計)` | その合計でOUTになるか（いまはどの難易度も、目標値を超えたらOUT） |
 | `createGameState(参加者, ゲーム番号, 難易度)` | 全員0点・1ターン目の状態を作る。難易度はここで固定される |
 | `resolveTurn(状態, 全員の選択, キャラ表)` | 1ターン分の計算（下で説明） |
 | `advance(状態)` | 次のターンへ進める。最後のターンの後、または全員OUTなら終了 |
@@ -354,12 +359,12 @@ Firebase の `onDisconnect` という機能で、「接続が切れたら、サ�
 
 `resolveTurn` の中身は、仕様の「重要なゲームロジック」と同じ順番です。
 
-1. OUTでない人の「有効な選択」を集める（未選択・使用禁止キャラは除く）
+1. OUTでない人の「有効な選択」を集める（未選択・使用禁止キャラ・その難易度で使えないキャラは除く）
 2. キャラクターごとに、選んだ人数を数える
 3. 1人ずつ結果を決める
    - 2人以上が選んだキャラ → **+0**、そのキャラを使用禁止リストに追加
-   - それ以外 → **順位を加点**
-   - 合計が目標値を超えたら **OUT**（`after > targetScore`。ちょうどはセーフ。Lunatic の目標値は 150）
+   - それ以外 → **順位を加点**（`pointsFor`）
+   - 合計が目標値を超えたら **OUT**（`isOver`。ちょうどはセーフ。目標値は Hard が 21、Lunatic が 150）
 
 結果の種類（`outcome`）は4つです。
 
@@ -368,7 +373,7 @@ Firebase の `onDisconnect` という機能で、「接続が切れたら、サ�
 | `ok` | ふつうに選んだ | 順位 |
 | `duplicate` | ほかの人と重複した | 0 |
 | `none` | 選ばなかった（ホストに締め切られた） | 0 |
-| `invalid` | 使用禁止のキャラだった（画面では選べないが、念のため） | 0 |
+| `invalid` | 使用禁止のキャラ、またはその難易度で使えないキャラだった（画面では選べないが、念のため） | 0 |
 
 ### `js/room.js` ― ルームとゲーム進行の操作
 
@@ -494,9 +499,13 @@ Firebase のセキュリティルールです。各行に説明を書いてあ�
 | ゲーム開始後に難易度を変えようとした | 待機画面にしか選ぶ場所がない。万一書き込もうとしても変わらない | `game-logic.js` `withDifficulty` |
 | キャラを選ばずに決定を押した | 「先に、一覧からキャラクターを選んでください」 | `main.js` `onDecide` |
 | 使用禁止のキャラを選ぼうとした | 一覧で灰色になり、押しても選べない。万一送られても加点しない | `main.js` `onCharTap`、`game-logic.js` `resolveTurn` |
+| その難易度で使えないキャラを選ぼうとした | 一覧にも検索結果にも出ない（検索すると「Hard では選べません」と出る）。万一送られても加点しない | `views.js` `renderCharList`、`room.js` `submitPick`、`game-logic.js` `resolveTurn` |
 | OUTの人が操作しようとした | キャラクター一覧が出ない（観戦表示）。ルールでも書き込みを拒否する | `views.js` `renderGame`、`database.rules.json` |
 | 誰かがなかなか選ばない・戻ってこない | ホストは「未選択の人を待たずに結果を公開」で進められる（その人は +0） | `main.js` `onForce` |
-| ホストが切断した | オンラインの人のうち、最初に入室した人がホストの操作をできる | `room.js` `hostUidOf` |
+| 待機画面で「最初の画面に戻る」を押した | ルームの名簿から自分を消して、トップ画面に戻る。ほかに人がいるときだけ確認を出す | `main.js` `onLeaveLobby` `leaveRoom`、`room.js` `leaveRoom` |
+| 通信が切れているときに戻ろうとした | 画面は先にトップへ戻す。退出の通信は裏で行い、つながり直したときに送られる（通信を待つと、いつまでも戻れなくなるため） | `main.js` `leaveRoom` |
+| ホストが待機画面から抜けた・切断した | 残っている人のうち最初に入室した人が次のホストになり、「あなたがホストになりました」と出る。ルームは消さない | `room.js` `hostUidOf`、`main.js` `noticeHostChange` |
+| 古い画面のまま、新しい難易度のゲームに入った | 「ゲームが新しくなっています。再読み込みしてください」と出て止まる（違うルールで計算しないため） | `main.js` `onRoomChange` |
 | 2人が同時に同じ操作をした | トランザクションにより、1回だけ反映される | `room.js`、4-4 |
 
 ---
@@ -521,14 +530,14 @@ Firebase のセキュリティルールです。各行に説明を書いてあ�
 
 ### 11-1. しくみ
 
-難易度ごとの設定は、`js/config.js` の `DIFFICULTY_SETTINGS` にまとめてあります。
+ルールは難易度ごとに別々に持っています。設定は `js/config.js` の `DIFFICULTY_SETTINGS` にまとめてあります。
 
 ```js
 export const DIFFICULTY_SETTINGS = {
   easy:    { label: 'Easy',    available: false },   // 準備中（Coming Soon）
   normal:  { label: 'Normal',  available: false },
-  hard:    { label: 'Hard',    available: false },
-  lunatic: { label: 'Lunatic', available: true, targetScore: 150, maxTurns: 5 },
+  hard:    { label: 'Hard',    available: true, targetScore: 21,  maxTurns: 5, maxCharacterRank: 50 },
+  lunatic: { label: 'Lunatic', available: true, targetScore: 150, maxTurns: 5, maxCharacterRank: null },
 };
 ```
 
@@ -538,8 +547,31 @@ export const DIFFICULTY_SETTINGS = {
 | `available` | `true` なら選べる（PLAY）。`false` のあいだは「Coming Soon」と表示され、選べない |
 | `targetScore` | 目標値。これを超えたらOUT |
 | `maxTurns` | ターン数 |
+| `maxCharacterRank` | 使えるキャラクターの範囲。`50` なら人気投票50位以内だけ。`null` なら制限なし（全員） |
 
-いま遊べるのは Lunatic だけで、中身はこれまでのルール（目標150・5ターン）そのままです。
+いまの難易度は次のとおりです。
+
+| 難易度 | 使えるキャラクター | 目標値 | ターン |
+|---|---|---:|---:|
+| Easy | 今後決定 | 今後決定 | 今後決定 |
+| Normal | 今後決定 | 今後決定 | 今後決定 |
+| Hard | 人気投票 1〜50位（50人） | 21 | 5 |
+| Lunatic | 全キャラクター（225人） | 150 | 5 |
+
+Lunatic の `maxCharacterRank` を `225` ではなく `null`（制限なし）にしているのは、
+人気投票のデータを差し替えて人数が変わっても、書き直さずに済むようにするためです。
+
+**使えるキャラクターの範囲は、4か所で同じ関数（`isCharacterUsable`）を使って確かめています。**
+
+| 場所 | すること |
+|---|---|
+| 一覧と検索（`views.js` `renderCharList`） | 使えるキャラクターだけを表示する。並びは50音順のまま |
+| 決定するとき（`room.js` `submitPick`） | 使えないキャラクターは送らずに、エラーにする |
+| 結果の計算（`game-logic.js` `resolveTurn`） | 万一送られてきても、無効（+0）として扱う |
+| 「遊び方」と待機画面の説明（`views.js`） | 「人気投票 50 位以内」のように、設定から文章を作る |
+
+「上位50人に絞ること」と「画面に50音順で並べること」は別の処理です。
+一覧は最初に全員を50音順に並べてあり（`prepareCharacters`）、そこから使える人だけを取り出すので、順番は50音順のままです。
 
 ### 11-2. 難易度が全員に共有されるまで
 
@@ -563,35 +595,64 @@ export const DIFFICULTY_SETTINGS = {
 - 変更できるのは待機中（`status` が `lobby`）だけです。`withDifficulty` が、ゲーム開始後の変更を受けつけません。
 - 「もう一度」で待機画面に戻ったときは、前回の難易度が選ばれたままになります。
 - 難易度の記録がない古いルームのデータは、Lunatic として扱います。
+- ゲーム中のルームの難易度を、その画面（読み込み済みのプログラム）が知らない場合は、
+  「ゲームが新しくなっています。ページを再読み込みしてください」と表示して止まります。
+  難易度を追加して公開し直したあと、古い画面を開いたままの人が、違うルールで計算してしまうのを防ぐためです
+  （`main.js` の `onRoomChange`）。
 
-### 11-3. Easy / Normal / Hard を追加するとき
+### 11-3. Easy / Normal を追加するとき
 
-**目標値とターン数を変えるだけの場合**は、`config.js` を1行書き換えるだけです。
+**目標値・ターン数・使えるキャラクターを変えるだけの場合**は、`config.js` を1行書き換えるだけです。
 
 ```js
-  easy: { label: 'Easy', available: true, targetScore: 100, maxTurns: 3 },
+  easy: { label: 'Easy', available: true, targetScore: 100, maxTurns: 3, maxCharacterRank: 100 },
 ```
 
-待機画面で選べるようになり、ステータスバー（TURN 1 / 3、目標 100 点）、「遊び方」の数字、
-OUTの判定、終了するターン、最終結果の「100との差」が、すべてこの設定に合わせて変わります。
+待機画面で選べるようになり、キャラクター一覧と検索、ステータスバー（TURN 1 / 3、目標 100 点）、
+「遊び方」の説明、OUTの判定、終了するターン、最終結果の「100との差」、トップ画面の「Easy：目標 100」が、
+すべてこの設定に合わせて変わります。Hard や Lunatic の設定とコードは、そのままです。
 （この動きは `tests/` の「設定を1つ足すだけで…」のテストでも確認しています）
 
-自動では変わらないのは、トップ画面の文章「150 を超えずに 150 を目指せ」だけです。
-`index.html` に直接書いてあるので、目標値の違う難易度を足したときは、必要に応じて直してください。
+**それ以外のルールも難易度ごとに変えたい場合**は、次の表の場所を直します。
+「難易度によって違うところ」は、`rules`（その難易度の設定）を受け取る小さな関数に分けてあるので、
+直す場所は1か所で済みます。
 
-**それ以外のルールも変えたい場合**は、設定に項目を足して、`game-logic.js` でその項目を見るようにします。
-たとえば「Easy では、重複しても使用禁止にしない」というルールにするなら、次の2か所です。
+| 変えたいもの | 直す場所（`game-logic.js`） | いまの決まり |
+|---|---|---|
+| 使えるキャラクターの範囲 | `isCharacterUsable` | 順位が `maxCharacterRank` 以内 |
+| 得点計算 | `pointsFor` | 順位がそのまま点数 |
+| OUTになる条件 | `isOver` | 合計が `targetScore` を超えたらOUT |
+| 重複したときの扱い | `resolveTurn` の「重複」の部分 | 全員 +0、そのキャラは以降使用禁止 |
+| 勝敗判定 | `judgeResult` | OUTでない人のうち、`targetScore` との差が最小の人 |
+| ターン数 | `isLastReveal` | `maxTurns` ターンで終了 |
+
+手順は、どれも同じ2段階です。
+
+1. `config.js` で、その難易度の設定に項目を足す
+2. 上の表の関数で、その項目を見て処理を分ける
+
+たとえば「Easy では、重複しても使用禁止にしない」というルールにするなら、次のようになります。
 
 ```js
-// config.js … 設定に項目を足す
-  easy:    { label: 'Easy',    available: true, targetScore: 150, maxTurns: 5, banDuplicates: false },
-  lunatic: { label: 'Lunatic', available: true, targetScore: 150, maxTurns: 5, banDuplicates: true },
+// 1. config.js … 設定に項目を足す（書いていない難易度は、これまでどおり使用禁止にする）
+  easy: { label: 'Easy', available: true, targetScore: 150, maxTurns: 5, maxCharacterRank: null, keepDuplicates: true },
 
-// game-logic.js の resolveTurn … 使用禁止にするところで、その項目を見る
-  const { targetScore, banDuplicates } = rulesOf(state);
-  …
-  if (banDuplicates) banned[banKey(character.id)] = state.turn;
+// 2. game-logic.js の resolveTurn … 使用禁止にするところで、その項目を見る
+  if (!rules.keepDuplicates) banned[banKey(character.id)] = state.turn;
 ```
 
-このように「難易度によって変わるところ」を設定の項目にしておくと、Lunatic のコードはそのままで、
-新しい難易度を足していけます。項目を足したら、`tests/game-logic.test.js` にテストも足してください。
+「Normal では、順位の半分（切り上げ）を点数にする」なら、`pointsFor` だけを直します。
+
+```js
+// 1. config.js
+  normal: { label: 'Normal', available: true, targetScore: 50, maxTurns: 5, maxCharacterRank: 100, halfPoints: true },
+
+// 2. game-logic.js
+export function pointsFor(rules, character) {
+  return rules.halfPoints ? Math.ceil(character.rank / 2) : character.rank;
+}
+```
+
+どちらの例でも、項目を書いていない難易度（Hard・Lunatic）の動きは変わりません。
+ルールを足したら、`tests/game-logic.test.js` にテストも足してください
+（「Hard のテスト」が、書き方の見本になります）。

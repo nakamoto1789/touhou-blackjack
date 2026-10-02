@@ -25,6 +25,7 @@ import { $, escapeHtml, normalizeText, searchCharacters } from './util.js';
 import {
   rulesOf,
   listDifficulties,
+  listUsableCharacters,
   roundKeyOf,
   turnKey,
   isBanned,
@@ -42,6 +43,31 @@ function meTag(app, uid) {
 /** そのuidの人の名前（ゲーム中は参加者の名前、待機中は名簿の名前） */
 function nameOf(room, uid) {
   return room.state.scores?.[uid]?.name ?? room.players?.[uid]?.name ?? '？';
+}
+
+/** 「使えるキャラクターの範囲」を言葉にする。例: '人気投票 50 位以内のキャラクター' */
+function characterRangeText(rules) {
+  return rules.maxCharacterRank == null
+    ? 'すべてのキャラクター'
+    : `人気投票 ${rules.maxCharacterRank} 位以内のキャラクター`;
+}
+
+/** 難易度のルールを短い言葉に分けて返す。例: ['目標 21 点', '5 ターン', '人気投票 50 位以内'] */
+function rulesSummaryParts(rules) {
+  const range = rules.maxCharacterRank == null ? '全キャラクター' : `人気投票 ${rules.maxCharacterRank} 位以内`;
+  return [`目標 ${rules.targetScore} 点`, `${rules.maxTurns} ターン`, range];
+}
+
+// ============================================================
+// 1. トップ画面
+// ============================================================
+
+/** いま遊べる難易度と、その目標値を並べる。例: 'Hard：目標 21 ／ Lunatic：目標 150' */
+export function renderTop() {
+  $('hero-difficulties').textContent = listDifficulties()
+    .filter((difficulty) => difficulty.available)
+    .map((difficulty) => `${difficulty.label}：目標 ${difficulty.targetScore}`)
+    .join(' ／ ');
 }
 
 // ============================================================
@@ -105,12 +131,23 @@ function renderDifficultyList(app, iAmHost) {
         selected ? 'is-selected' : '',
         difficulty.available ? '' : 'is-soon',
       ].join(' ');
+      // 遊べる難易度には、その難易度のルール（目標値・ターン数・使えるキャラクター）を添える。
+      // 言葉の途中で改行されないよう、1つずつ <span> に入れている
+      const parts = difficulty.available ? rulesSummaryParts(difficulty) : [];
+      const detail = difficulty.available
+        ? `<span class="difficulty-detail">${parts
+            .map((part, index) => `<span>${escapeHtml(part)}${index < parts.length - 1 ? '・' : ''}</span>`)
+            .join('')}</span>`
+        : '';
       return `
         <li>
           <button type="button" class="${classes}" data-difficulty="${escapeHtml(difficulty.id)}"
                   aria-pressed="${selected}" ${iAmHost ? '' : 'disabled'}>
             <span class="difficulty-radio" aria-hidden="true"></span>
-            <span class="difficulty-name">${escapeHtml(difficulty.label)}</span>
+            <span class="difficulty-text">
+              <span class="difficulty-name">${escapeHtml(difficulty.label)}</span>
+              ${detail}
+            </span>
             <span class="difficulty-tag">${difficulty.available ? 'PLAY' : 'Coming Soon'}</span>
           </button>
         </li>`;
@@ -196,15 +233,25 @@ function renderScoreboard(app) {
  *
  * app.characters は50音順に並んでいる（main.js の loadCharacters で並べ替え済み）。
  * 表示するのは名前だけ。順位やポイントは出さない。
+ *
+ * 一覧にも検索結果にも、その難易度で使えるキャラクターだけを出す。
+ * （Hard なら人気投票50位以内の50人。並びは順位順ではなく、50音順のまま）
  */
 export function renderCharList(app) {
   const state = app.room.state;
+  const rules = rulesOf(state);
   const queryText = $('input-search').value;
-  const found = searchCharacters(app.characters, queryText);
+  const usable = listUsableCharacters(rules, app.characters);
+  const found = searchCharacters(usable, queryText);
 
   if (found.length === 0) {
-    $('char-list').innerHTML =
-      `<li class="char-empty">「${escapeHtml(queryText.trim())}」に合うキャラクターが見つかりません</li>`;
+    // 全キャラクターの中にはいるのに、この難易度では使えない場合は、そのことを伝える
+    const existsButNotUsable = searchCharacters(app.characters, queryText).length > 0;
+    const query = escapeHtml(queryText.trim());
+    $('char-list').innerHTML = existsButNotUsable
+      ? `<li class="char-empty">「${query}」に合うキャラクターは、${escapeHtml(rules.label)} では選べません<br>
+           （選べるのは${characterRangeText(rules)}だけです）</li>`
+      : `<li class="char-empty">「${query}」に合うキャラクターが見つかりません</li>`;
     return;
   }
 
@@ -332,10 +379,13 @@ export function renderGame(app) {
     const rules = rulesOf(state);
     const rest = rules.targetScore - me.total;
     const picksLeft = rules.maxTurns - state.turn + 1;
-    $('picker-hint').textContent =
+    const progress =
       rest > 0
         ? `あと ${rest} 点。このターンを入れて、あと ${picksLeft} 回選びます。`
         : `いま ${rules.targetScore} 点ちょうど。加点されるとOUTです（重複して +0 ならセーフ）。`;
+    // 使えるキャラクターが限られている難易度（Hard など）では、そのことも伝える
+    const range = rules.maxCharacterRank == null ? '' : `選べるのは${characterRangeText(rules)}だけです。`;
+    $('picker-hint').textContent = progress + range;
     renderPickPanel(app);
   } else {
     renderWaiting(app);
@@ -385,7 +435,7 @@ export function renderRevealCards(app) {
       const notes = {
         ok: '',
         duplicate: '<span class="reveal-note">重複！</span>',
-        invalid: '<span class="reveal-note">使用禁止</span>',
+        invalid: '<span class="reveal-note">無効</span>',
         none: '<span class="reveal-note">時間切れ</span>',
       };
 
@@ -526,12 +576,16 @@ export function renderResult(app) {
 // ============================================================
 
 /**
- * 「遊び方」に出てくる数字（目標値・ターン数）を、難易度の設定に合わせる。
+ * 「遊び方」に出てくる数字（目標値・ターン数）と、使えるキャラクターの説明を、難易度の設定に合わせる。
  * ルームに入っているときはそのルームの難易度、入っていないときは既定の難易度を使う。
  */
 export function renderRules(app) {
   const rules = rulesOf(app.room?.state);
   $('rules-difficulty').textContent = `（${rules.label}）`;
+  $('rules-range').textContent =
+    rules.maxCharacterRank == null
+      ? 'すべてのキャラクターから選べます。'
+      : `選べるのは、${characterRangeText(rules)}だけです。`;
   for (const element of document.querySelectorAll('[data-rule="target"]')) {
     element.textContent = rules.targetScore;
   }

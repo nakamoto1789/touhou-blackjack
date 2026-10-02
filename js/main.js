@@ -14,7 +14,14 @@
 import { CHARACTERS_URL, ROOM_ID_LENGTH, NAME_MAX_LENGTH, DEFAULT_PLAYER_NAME } from './config.js';
 import { $, showScreen, showToast, confirmDialog, copyText, prepareCharacters } from './util.js';
 import { initBackend, backend, isDemoMode } from './backend.js';
-import { rulesOf, roundKeyOf, allActiveSubmitted, isBanned, listParticipants } from './game-logic.js';
+import {
+  rulesOf,
+  isDifficultyAvailable,
+  roundKeyOf,
+  allActiveSubmitted,
+  isBanned,
+  listParticipants,
+} from './game-logic.js';
 import * as roomApi from './room.js';
 import * as views from './views.js';
 
@@ -30,6 +37,7 @@ const app = {
   charById: new Map(),   // キャラid → キャラクター
   roomId: null,          // いまいるルームのID（入っていなければ null）
   room: null,            // ルームの最新データ
+  hostUid: null,         // いまのホストのID（ホストが変わったことに気づくために覚えておく）
   stopWatching: null,    // ルームの監視をやめる関数
   selectedCharId: null,  // 一覧でタップして選んでいるキャラ（決定前）
   myPick: null,          // 自分が決定した選択 { roundKey, charId }
@@ -56,6 +64,7 @@ async function start() {
   }
 
   $('banner-demo').hidden = !isDemoMode;
+  views.renderTop();
   watchConnection();
   await openFirstScreen();
 }
@@ -145,6 +154,7 @@ function exitRoom(message) {
   Object.assign(app, {
     roomId: null,
     room: null,
+    hostUid: null,
     stopWatching: null,
     selectedCharId: null,
     myPick: null,
@@ -165,18 +175,18 @@ function exitRoom(message) {
   if (message) showToast(message, 'error');
 }
 
-/** ルームから退出する（待機中なら名簿から消え、ゲーム中ならオフラインになる） */
-async function leaveRoom() {
+/**
+ * ルームから退出して、最初の画面に戻る。
+ * （待機中なら名簿から自分が消え、ゲーム中ならオフラインになる）
+ *
+ * 画面は「すぐに」最初の画面へ戻す。退出したことをルームに書き込む通信は、その裏で行う。
+ * 通信の完了を待ってから画面を戻すと、電波が悪いときに、いつまでも戻れなくなるため。
+ * （通信が切れていても、つながり直したときに自動で送られる）
+ */
+function leaveRoom() {
   const { roomId, room } = app;
-  // 先に監視を止める（自分が名簿から消えた通知を「追い出された」と誤解しないため）
-  if (app.stopWatching) app.stopWatching();
-  app.stopWatching = null;
-  try {
-    await roomApi.leaveRoom(roomId, room);
-  } catch (error) {
-    console.warn('退出の書き込みに失敗', error);
-  }
-  exitRoom();
+  exitRoom();   // ルームの監視を止めて、最初の画面へ
+  roomApi.leaveRoom(roomId, room).catch((error) => console.warn('退出の書き込みに失敗', error));
 }
 
 // ============================================================
@@ -194,7 +204,21 @@ function onRoomChange(room) {
     return;
   }
 
+  // ゲーム中のルームの難易度を、この画面が知らないとき：
+  // ゲームが更新されて難易度が増えたのに、古い画面のまま開いている状態。
+  // 違うルールで計算してしまわないよう、再読み込みをお願いして止まる。
+  const { status, difficulty } = room.state;
+  if (status !== 'lobby' && difficulty && !isDifficultyAvailable(difficulty)) {
+    if (app.stopWatching) app.stopWatching();
+    app.stopWatching = null;
+    $('loading-text').textContent = 'ゲームが新しくなっています。ページを再読み込みしてください。';
+    $('btn-reload').hidden = false;
+    showScreen('loading');
+    return;
+  }
+
   app.room = room;
+  noticeHostChange();
   try {
     render();
     autoActions();
@@ -202,6 +226,22 @@ function onRoomChange(room) {
     console.error('画面の更新に失敗', error);
   }
   updateWakeLock();
+}
+
+/**
+ * ホストが自分に変わったら知らせる。
+ * （ホストが退出したり、通信が切れたりすると、残っている人のうち最初に入室した人がホストになる）
+ */
+function noticeHostChange() {
+  const hostUid = roomApi.hostUidOf(app.room);
+  const becameHost = app.hostUid !== null && app.hostUid !== hostUid && hostUid === app.uid;
+  app.hostUid = hostUid;
+  if (!becameHost) return;
+  showToast(
+    app.room.state.status === 'lobby'
+      ? 'あなたがホストになりました。難易度の選択とゲーム開始ができます。'
+      : 'あなたがホストになりました。ゲームを進められます。'
+  );
 }
 
 /** ルームの状態に合った画面を表示する */
@@ -522,9 +562,22 @@ async function onForce() {
   runTask($('btn-force'), () => roomApi.resolveTurn(app.roomId, app.room, app.charById));
 }
 
+/** 待機画面の「最初の画面に戻る」 */
 async function onLeaveLobby() {
-  const ok = await confirmDialog({ title: 'ルームから退出しますか？', okLabel: '退出する' });
-  if (ok) leaveRoom();
+  // ほかに人がいるときだけ確認する（自分だけのルームなら、そのまま戻る）
+  const others = roomApi.listPlayers(app.room).filter((p) => p.uid !== app.uid);
+  if (others.length > 0) {
+    const iAmHost = roomApi.hostUidOf(app.room) === app.uid;
+    const ok = await confirmDialog({
+      title: '最初の画面に戻りますか？',
+      message: iAmHost
+        ? 'ルームから退出します。ホストは、残っている人に引き継がれます。'
+        : 'ルームから退出します。同じルームIDを入力すれば、また参加できます。',
+      okLabel: '戻る',
+    });
+    if (!ok) return;
+  }
+  leaveRoom();
 }
 
 async function onLeaveGame() {

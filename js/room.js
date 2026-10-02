@@ -28,6 +28,7 @@ import {
   isDifficultyAvailable,
   withDifficulty,
   rulesOf,
+  isCharacterUsable,
   roundKeyOf,
   isBanned,
   resolveTurn as resolveTurnLogic,
@@ -171,6 +172,9 @@ export async function joinRoom(roomIdText, playerName) {
  * ルームから退出する。
  * 待機中なら名簿から消える。ゲーム中は「オフライン」になるだけで、
  * 同じルームIDを入力すれば戻れる。
+ *
+ * ホスト（ルームを作った人）が退出しても、ルームは残る。
+ * 残っている人のうち最初に入室した人が、自動的に次のホストになる（hostUidOf）。
  */
 export async function leaveRoom(roomId, room) {
   const inLobby = room?.state?.status === 'lobby';
@@ -228,6 +232,9 @@ export async function submitPick(roomId, room, charId, charById) {
   if (!me) throw new GameError('このゲームには参加していません。');
   if (me.out) throw new GameError('OUTになったため、選択できません。');
   if (!charById.has(charId)) throw new GameError('キャラクターを選択してください。');
+  if (!isCharacterUsable(rulesOf(state), charById.get(charId))) {
+    throw new GameError('このキャラクターは、この難易度では選べません。');
+  }
   if (isBanned(state, charId)) {
     throw new GameError('このキャラクターは重複したため、使用禁止です。');
   }

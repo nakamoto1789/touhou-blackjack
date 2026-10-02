@@ -33,7 +33,7 @@ export function isDifficultyAvailable(id) {
 
 /**
  * 難易度の名前から、その設定を取り出す。
- * 返す値: { id: 'lunatic', label: 'Lunatic', available: true, targetScore: 150, maxTurns: 5 }
+ * 返す値の例: { id: 'hard', label: 'Hard', available: true, targetScore: 21, maxTurns: 5, maxCharacterRank: 50 }
  * 選べない難易度や、難易度の記録がない古いデータのときは、既定の難易度の設定を返す。
  */
 export function difficultyOf(id) {
@@ -58,6 +58,40 @@ export function listDifficulties() {
 export function withDifficulty(state, id) {
   if (state.status !== 'lobby' || !isDifficultyAvailable(id)) return undefined;
   return { ...state, difficulty: id };
+}
+
+// ---- 難易度によって変わるルール ----------------------------------------
+// 「難易度によって違うところ」は、rules（その難易度の設定）を受け取る小さな関数に
+// 分けてあります。新しい難易度でルールを変えたいときは、
+//   1. config.js のその難易度の設定に項目を足す
+//   2. 下の関数（または resolveTurn / judgeResult）で、その項目を見て処理を分ける
+// の順で直します。ほかの難易度の設定や動きは変わりません。
+//
+//   使えるキャラクターの範囲 … isCharacterUsable
+//   得点計算                 … pointsFor
+//   OUTになる条件            … isOver
+//   重複したときの扱い       … resolveTurn の「重複」の部分
+//   勝敗判定                 … judgeResult
+
+/** そのキャラクターを、この難易度で使えるか */
+export function isCharacterUsable(rules, character) {
+  // maxCharacterRank が null（または書かれていない）なら、全キャラクターを使える
+  return rules.maxCharacterRank == null || character.rank <= rules.maxCharacterRank;
+}
+
+/** この難易度で使えるキャラクターだけを取り出す（並び順は元のまま） */
+export function listUsableCharacters(rules, characters) {
+  return characters.filter((character) => isCharacterUsable(rules, character));
+}
+
+/** キャラクターを選んだときの加点。いまはどの難易度も「順位がそのまま点数」 */
+export function pointsFor(rules, character) {
+  return character.rank;
+}
+
+/** その合計点でOUTになるか。いまはどの難易度も「目標値を超えたらOUT（ちょうどはセーフ）」 */
+export function isOver(rules, total) {
+  return total > rules.targetScore;
 }
 
 // ---- 状態を作る -------------------------------------------------------
@@ -147,15 +181,16 @@ export function allActiveSubmitted(state, submitted = {}) {
  * @returns {object} 結果を反映した新しい状態（phase は 'reveal'）
  */
 export function resolveTurn(state, picks, charById) {
-  const { targetScore } = rulesOf(state);
+  const rules = rulesOf(state);   // このゲームの難易度のルール
   const banned = { ...(state.banned || {}) };
 
   // --- 1) OUTでない人の「有効な選択」を集める -----------------------
   const validPicks = {};   // uid → キャラクター
   for (const uid of activeUids(state)) {
     const character = charById.get(picks[uid]);
-    if (!character) continue;                     // 選択なし（または存在しないid）
-    if (banned[banKey(character.id)]) continue;   // すでに使用禁止 → 無効な選択
+    if (!character) continue;                             // 選択なし（または存在しないid）
+    if (banned[banKey(character.id)]) continue;           // すでに使用禁止 → 無効な選択
+    if (!isCharacterUsable(rules, character)) continue;   // この難易度では使えない → 無効な選択
     validPicks[uid] = character;
   }
 
@@ -180,25 +215,25 @@ export function resolveTurn(state, picks, charById) {
     let charId = 0;   // 選んだキャラid（選択なしは 0）
 
     if (!character) {
-      // 選択なし、または使用禁止キャラを選んでいた → 加点なし
+      // 選択なし、または選べないキャラ（使用禁止・この難易度では対象外）を選んでいた → 加点なし
       const pickedSomething = charById.has(picks[uid]);
       outcome = pickedSomething ? 'invalid' : 'none';
       charId = pickedSomething ? picks[uid] : 0;
     } else if (pickerCount[character.id] >= 2) {
-      // 重複：加点0。このキャラはゲーム終了まで使用禁止になる
+      // 重複：加点0。このキャラはゲーム終了まで使用禁止になる（どの難易度でも同じ）
       outcome = 'duplicate';
       charId = character.id;
       banned[banKey(character.id)] = state.turn;
     } else {
-      // 通常：順位がそのまま点数になる
+      // 通常：その難易度の得点計算で加点する
       outcome = 'ok';
       charId = character.id;
-      gained = character.rank;
+      gained = pointsFor(rules, character);
     }
 
     const before = score.total;
     const after = before + gained;
-    const out = after > targetScore;   // 目標値を「超えたら」OUT。ちょうどはセーフ
+    const out = isOver(rules, after);   // その難易度の「OUTになる条件」で判定する
 
     results[uid] = { charId, outcome, gained, before, after, out };
     scores[uid] = { ...score, total: after, out };
@@ -230,8 +265,9 @@ export function advance(state) {
 }
 
 /**
- * 最終結果を計算する。
- * OUTの人を除き、目標値との差が最も小さい人が勝者（同じ差なら全員勝者）。
+ * 最終結果を計算する（勝敗判定）。
+ * OUTの人を除き、その難易度の目標値との差が最も小さい人が勝者（同じ差なら全員勝者）。
+ * Hard なら「21に最も近い人」、Lunatic なら「150に最も近い人」になる。
  *
  * @returns {{ winners: string[], ranking: Array<object> }}
  *   ranking の各要素: { uid, name, total, out, diff, place, isWinner }

@@ -435,6 +435,14 @@ body[data-screen="game"] .toast {
   font-size: 20px;
   color: var(--red);
 }
+/* 遊べる難易度と目標値（例：Hard：目標 21 ／ Lunatic：目標 150） */
+.hero-difficulties {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+}
 
 .fan-notice {
   margin-top: 8px;
@@ -530,12 +538,29 @@ body[data-screen="game"] .toast {
   border: 2px solid #b9b1a6;
   border-radius: 50%;
 }
-.difficulty-name {
+/* 難易度の名前と、その下のルールの説明 */
+.difficulty-text {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.difficulty-name {
   font-family: var(--font-serif);
   font-size: 18px;
   font-weight: 800;
+  line-height: 1.4;
   letter-spacing: 0.04em;
+}
+/* 例：目標 21 点・5 ターン・人気投票 50 位以内 */
+.difficulty-detail {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+/* 幅が足りないときは「・」の後ろで改行する（言葉の途中では改行しない） */
+.difficulty-detail span {
+  display: inline-block;
 }
 /* 「PLAY」「Coming Soon」の札 */
 .difficulty-tag {

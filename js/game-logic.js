@@ -184,6 +184,14 @@ export function isBurst(rules, total) {
   return total >= rules.burstScore;
 }
 
+/**
+ * 合計が目標値ちょうどか（「ぴったり賞」になるか）。
+ * バーストする点数は必ず目標値より大きいので、ぴったりの人がバーストしていることはない。
+ */
+export function isExactHit(rules, total) {
+  return total === rules.targetScore;
+}
+
 // ---- オリジナルのルールのチェック --------------------------------------
 
 /**
@@ -472,13 +480,18 @@ export function advance(state) {
  * バーストした人を除き、目標値との差が最も小さい人が勝者（同じ差なら全員勝者）。
  * ハードなら「150に最も近い人」、ノーマルなら「50に最も近い人」になる。
  *
+ * 目標値ちょうどの人（ぴったり賞）は差が 0 なので、必ず勝者になる。
+ * ぴったり賞は勝ち負けを変えない「おまけの表彰」で、画面の表示だけに使う。
+ *
  * @returns {{ winners: string[], ranking: Array<object> }}
- *   ranking の各要素: { uid, name, total, out, diff, place, isWinner }
+ *   ranking の各要素: { uid, name, total, out, diff, exact, place, isWinner }
  *   diff  … 目標値との差（バーストした人は null）
+ *   exact … 目標値ちょうどか（ぴったり賞）
  *   place … 順位（バーストした人は null。同じ差なら同じ順位）
  */
 export function judgeResult(state) {
-  const { targetScore } = rulesOf(state);
+  const rules = rulesOf(state);
+  const { targetScore } = rules;
   const players = listParticipants(state).map((player) => ({
     uid: player.uid,
     name: player.name,
@@ -488,6 +501,7 @@ export function judgeResult(state) {
     // 「どれだけ近いか」なので、差は0以上の数にする。
     // （オリジナルでバーストする点数を目標値より2以上大きくすると、目標値を少し超えた人も残る）
     diff: player.out ? null : Math.abs(targetScore - player.total),
+    exact: !player.out && isExactHit(rules, player.total),
   }));
 
   const safe = players.filter((player) => !player.out).sort((a, b) => a.diff - b.diff || a.order - b.order);

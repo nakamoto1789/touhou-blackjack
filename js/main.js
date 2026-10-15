@@ -12,8 +12,18 @@
 // ============================================================
 
 import { CHARACTERS_URL, ROOM_ID_LENGTH, NAME_MAX_LENGTH, DEFAULT_PLAYER_NAME } from './config.js';
-import { $, showScreen, showToast, confirmDialog, copyText, prepareCharacters, parseWholeNumber } from './util.js';
+import {
+  $,
+  escapeHtml,
+  showScreen,
+  showToast,
+  confirmDialog,
+  copyText,
+  prepareCharacters,
+  parseWholeNumber,
+} from './util.js';
 import { initBackend, backend, isDemoMode } from './backend.js';
+import { makeQrSvg } from './qr.js';
 import {
   modeOf,
   compatibilityOf,
@@ -266,6 +276,9 @@ function render() {
   if (!app.room) return;
   const state = app.room.state;
 
+  // ゲームが始まったら、待機画面で開いていた招待用のQRコードは閉じる
+  if (state.status !== 'lobby' && $('dialog-qr').open) $('dialog-qr').close();
+
   if (state.status === 'lobby') {
     showScreen('lobby');
     views.renderLobby(app);
@@ -491,6 +504,33 @@ async function onCopyRoomId() {
   showToast((await copyText(app.roomId)) ? 'ルームIDをコピーしました' : `ルームID：${app.roomId}`);
 }
 
+/**
+ * 「QRコードを表示」：招待リンクをQRコードにして、大きく表示する。
+ * 近くにいる人がスマホのカメラで読み取ると、ルームIDが入った参加画面が開く。
+ * （QRコードの中身は「招待リンクを送る」で送られるURLと同じ）
+ */
+async function onShowQr() {
+  const roomId = app.roomId;
+  const box = $('qr-box');
+  $('qr-room-id').textContent = roomId;
+  $('qr-hint').textContent = isDemoMode
+    ? 'お試しモードでは、ほかのスマホからは参加できません。このブラウザの別のタブで遊んでください。'
+    : 'スマホのカメラで読み取ると、このルームの参加画面が開きます。';
+  box.innerHTML = '<p class="qr-message">QRコードを作っています…</p>';
+  $('dialog-qr').showModal();
+
+  try {
+    const svg = await makeQrSvg(inviteUrl());
+    // 作っているあいだに、ダイアログを閉じた・ルームを出たときは何もしない
+    if ($('dialog-qr').open && app.roomId === roomId) box.innerHTML = svg;
+  } catch (error) {
+    console.warn('QRコードの作成に失敗', error);
+    box.innerHTML =
+      `<p class="qr-message">${escapeHtml(error.message)}<br>` +
+      '代わりに「招待リンクを送る」か、ルームIDを伝えてください。</p>';
+  }
+}
+
 /** 待機画面でゲームモードをタップ（選べるのはホストだけ。ほかの人のボタンは押せない状態になっている） */
 function onModeTap(event) {
   const row = event.target.closest('[data-mode]');
@@ -685,6 +725,7 @@ function bindEvents() {
   // 待機
   $('btn-copy-id').addEventListener('click', onCopyRoomId);
   $('btn-share').addEventListener('click', onShare);
+  $('btn-qr').addEventListener('click', onShowQr);
   $('lobby-modes').addEventListener('click', onModeTap);
   $('original-form').addEventListener('input', onOriginalInput);
   $('original-form').addEventListener('change', onOriginalChange);

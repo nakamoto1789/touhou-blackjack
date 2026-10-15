@@ -35,12 +35,16 @@ import {
   isBanned,
   listParticipants,
   isLastReveal,
+  isExactHit,
   judgeResult,
 } from './game-logic.js';
 import { listPlayers, isOnline, hostUidOf, startCandidates } from './room.js';
 
 /** バーストしたことを表す、赤いハンコ風の印 */
 const BURST_STAMP = '<span class="stamp-out">バースト</span>';
+
+/** 最後に目標値ちょうどだったことを表す、金色の印（ぴったり賞） */
+const EXACT_STAMP = '<span class="stamp-exact">ぴったり賞</span>';
 
 /** 名前の横につける「あなた」の印 */
 function meTag(app, uid) {
@@ -528,7 +532,11 @@ export function renderGame(app) {
  */
 export function renderRevealCards(app) {
   const state = app.room.state;
+  const rules = rulesOf(state);
   const results = state.history?.[turnKey(state.turn)] || {};
+  // 最後のターンの公開では、合計が目標値ちょうどになった人に「ぴったり賞」の印をつける
+  // （途中のターンでは出さない。まだ選択が残っていて、最終的な結果ではないため）
+  const last = isLastReveal(state);
 
   $('reveal-title').innerHTML = `<span class="reveal-turn">TURN ${state.turn}</span>結果公開！`;
 
@@ -564,9 +572,14 @@ export function renderRevealCards(app) {
         none: '<span class="reveal-note">時間切れ</span>',
       };
 
+      const exact = last && !result.out && isExactHit(rules, result.after);
+      let stamp = '';
+      if (result.out) stamp = `<div class="reveal-stamp">${BURST_STAMP}</div>`;
+      else if (exact) stamp = `<div class="reveal-stamp">${EXACT_STAMP}</div>`;
+
       // カードの左側に「だれが・だれを選んだか」、右側に「加点と合計」を並べる
       return `
-        <li class="reveal-card is-${result.outcome} ${result.out ? 'is-out' : ''}" style="--i:${order++}">
+        <li class="reveal-card is-${result.outcome} ${result.out ? 'is-out' : ''} ${exact ? 'is-exact' : ''}" style="--i:${order++}">
           <div class="reveal-left">
             ${name}
             <div class="reveal-pick">${pick}</div>
@@ -574,7 +587,7 @@ export function renderRevealCards(app) {
           <div class="reveal-right">
             <div class="reveal-gain">${notes[result.outcome]}+${result.gained}</div>
             <div class="reveal-total">合計 ${result.before} → <b>${result.after}</b></div>
-            ${result.out ? `<div class="reveal-burst">${BURST_STAMP}</div>` : ''}
+            ${stamp}
           </div>
         </li>`;
     })
@@ -640,14 +653,18 @@ export function renderResult(app) {
   } else {
     const best = ranking[0];
     const winnerList = ranking.filter((p) => p.isWinner);
+    // 勝者が目標値ちょうどなら「ぴったり賞」（差が 0 なので、ぴったりの人は必ず勝者になる）
+    const exact = best.exact;
     // 勝者が複数いて点数が違うとき（目標値をはさんで同じ差。オリジナルのルールで起きる）は、差だけを出す
     const sameTotal = winnerList.every((p) => p.total === best.total);
-    const detail = sameTotal
-      ? `${best.total}点（${targetScore}との差：${best.diff}）`
-      : `${targetScore}との差：${best.diff}`;
-    $('result-winner').className = 'winner-card';
+    let detail;
+    if (exact) detail = `${targetScore}点ちょうど！`;
+    else if (sameTotal) detail = `${best.total}点（${targetScore}との差：${best.diff}）`;
+    else detail = `${targetScore}との差：${best.diff}`;
+    $('result-winner').className = `winner-card ${exact ? 'is-exact' : ''}`;
     $('result-winner').innerHTML = `
       <p class="winner-label">🏆 WINNER</p>
+      ${exact ? '<p class="exact-ribbon">ぴったり賞</p>' : ''}
       ${winnerList.map((p) => `<p class="winner-name">${escapeHtml(p.name)}</p>`).join('')}
       <p class="winner-detail">${detail}${winners.length > 1 ? '<br>同率1位！' : ''}</p>`;
   }
@@ -656,9 +673,10 @@ export function renderResult(app) {
   $('result-ranking').innerHTML = ranking
     .map((player) => {
       const place = player.out ? 'バースト' : `${player.place}位`;
-      const detail = player.out
-        ? `${player.total - targetScore} オーバー`
-        : `${targetScore}との差：${player.diff}`;
+      let detail;
+      if (player.out) detail = `${player.total - targetScore} オーバー`;
+      else if (player.exact) detail = EXACT_STAMP;
+      else detail = `${targetScore}との差：${player.diff}`;
       return `
         <li class="rank-item ${player.isWinner ? 'is-winner' : ''} ${player.out ? 'is-out' : ''}">
           <span class="rank-place">${place}</span>

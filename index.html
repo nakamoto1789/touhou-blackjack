@@ -114,6 +114,8 @@
           <button id="btn-copy-id" class="btn btn-small" type="button">IDをコピー</button>
           <button id="btn-share" class="btn btn-small" type="button">招待リンクを送る</button>
         </div>
+        <!-- 近くにいる人は、この画面のQRコードをスマホのカメラで読み取って参加できる -->
+        <button id="btn-qr" class="btn btn-small btn-qr" type="button">QRコードを表示</button>
       </div>
 
       <div class="card">
@@ -267,6 +269,15 @@
     </div>
   </dialog>
 
+  <!-- 招待用のQRコード（中身の図は main.js の onShowQr が js/qr.js で作って入れる） -->
+  <dialog id="dialog-qr" class="dialog dialog-qr">
+    <h3 class="dialog-title">QRコードで参加</h3>
+    <div id="qr-box" class="qr-box" aria-live="polite"></div>
+    <p class="qr-room">ルームID <strong id="qr-room-id"></strong></p>
+    <p id="qr-hint" class="qr-hint">スマホのカメラで読み取ると、このルームの参加画面が開きます。</p>
+    <button class="btn btn-primary" type="button" data-action="close-dialog">とじる</button>
+  </dialog>
+
   <!-- ゲーム中のメニュー -->
   <dialog id="dialog-menu" class="dialog">
     <h3 class="dialog-title">メニュー</h3>
@@ -302,7 +313,8 @@
       <li>合計が<b data-rule="burst">バーストする点数</b>以上になると<b class="text-out">バースト</b>。<span data-rule="target">目標値</span>ちょうどはセーフです。<br>
         バーストした人は、以降のターンを観戦します。</li>
       <li><strong data-rule="turns">最後のターン</strong>が終わったとき、バーストしていない人のうち、<span data-rule="target">目標値</span>に最も近い人が勝ち。<br>
-        同じ差なら全員が勝者です。</li>
+        同じ差なら全員が勝者です。<br>
+        <span data-rule="target">目標値</span>ちょうどで終えた人には<b class="text-exact">ぴったり賞</b>！</li>
     </ol>
     <button class="btn btn-primary" type="button" data-action="close-dialog">とじる</button>
   </dialog>

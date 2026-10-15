@@ -21,6 +21,7 @@ import {
   listUsableCharacters,
   pointsFor,
   isBurst,
+  isExactHit,
   rankSpanOf,
   neededCharacters,
   findRuleProblems,
@@ -297,6 +298,37 @@ test('結果: 全員がバーストしたら勝者なし', () => {
   const result = judgeResult(stateWithTotals({ A: 151, B: 200 }));
   assertEqual(result.winners, []);
   assertEqual(result.ranking.every((p) => p.out && p.place === null), true);
+});
+
+// ---- ぴったり賞のテスト --------------------------------------------
+test('ぴったり賞: 判定は「合計が目標値ちょうど」（ハードは150、ノーマルは50）', () => {
+  const hard = presetRules('hard');
+  assertEqual([isExactHit(hard, 149), isExactHit(hard, 150), isExactHit(hard, 151)], [false, true, false]);
+  const normal = presetRules('normal');
+  assertEqual([isExactHit(normal, 49), isExactHit(normal, 50), isExactHit(normal, 150)], [false, true, false]);
+});
+
+test('ぴったり賞: 150ちょうどの人全員につき、その人たちが勝者（A150 B150 C149 D151）', () => {
+  const result = judgeResult(stateWithTotals({ A: 150, B: 150, C: 149, D: 151 }));
+  assertEqual(result.winners, ['A', 'B']);
+  assertEqual(result.ranking.map((p) => [p.uid, p.exact]), [['A', true], ['B', true], ['C', false], ['D', false]]);
+});
+
+test('ぴったり賞: ちょうどの人がいなければ、だれにもつかない（勝敗はこれまでどおり）', () => {
+  const result = judgeResult(stateWithTotals({ A: 148, B: 142, C: 153, D: 137, E: 148 }));
+  assertEqual(result.winners, ['A', 'E']);
+  assertEqual(result.ranking.some((p) => p.exact), false);
+});
+
+test('ぴったり賞: ノーマルは50ちょうど。オリジナルは決めた目標値ちょうど', () => {
+  const normal = judgeResult(stateWithTotals({ A: 49, B: 50 }, 5, lobbyOf('normal')));
+  assertEqual([normal.winners, normal.ranking[0].exact], [['B'], true]);
+
+  // バーストを目標値より大きくしたオリジナルでも、ちょうどの人は差0なので単独の勝者
+  const lobby = originalLobby({ targetScore: 100, burstScore: 111, maxTurns: 5, minRank: 1, maxRank: 225 });
+  const original = judgeResult(stateWithTotals({ A: 102, B: 100, C: 98 }, 5, lobby));
+  assertEqual(original.winners, ['B']);
+  assertEqual(original.ranking.map((p) => [p.uid, p.exact]), [['B', true], ['A', false], ['C', false]]);
 });
 
 // ---- ゲームモードのテスト ------------------------------------------

@@ -105,6 +105,10 @@ body {
   color: var(--red);
   font-weight: 800;
 }
+.text-exact {
+  color: var(--gold-deep);
+  font-weight: 800;
+}
 
 /* ---------- 2. 共通の部品 ---------- */
 
@@ -287,6 +291,21 @@ body {
   color: var(--red);
   background: #fff;
   border: 2px solid var(--red);
+  border-radius: 6px;
+  transform: rotate(-6deg);
+}
+/* 金色のハンコ風の「ぴったり賞」（形は「バースト」と同じで、色だけ変える） */
+.stamp-exact {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 8px;
+  font-size: 0.9em;
+  font-weight: 900;
+  line-height: 1.5;
+  letter-spacing: 0.08em;
+  color: var(--gold-deep);
+  background: #fffbea;
+  border: 2px solid var(--gold);
   border-radius: 6px;
   transform: rotate(-6deg);
 }
@@ -512,6 +531,56 @@ body[data-screen="game"] .toast {
   letter-spacing: 0.18em;
   color: var(--red-deep);
   user-select: all;
+}
+.btn-qr {
+  margin-top: 10px;
+}
+
+/* 招待用のQRコード */
+.dialog-qr {
+  text-align: center;
+}
+.qr-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(100%, 280px);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  /* 読み取りやすいよう、QRコードのまわりは必ず白にする */
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.qr-box svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* 作っている途中・作れなかったときのメッセージ */
+.qr-message {
+  margin: 0;
+  padding: 16px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.qr-room {
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.qr-room strong {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 26px;
+  letter-spacing: 0.15em;
+  color: var(--red-deep);
+}
+.qr-hint {
+  margin: 6px 0 16px;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .player-list {
@@ -1167,11 +1236,17 @@ body[data-screen="game"] .toast {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-/* このターンでバーストした人のカードに出る「バースト」の印（合計と同じタイミングで現れる） */
-.reveal-burst {
+/* カードに出る「バースト」「ぴったり賞」の印（合計と同じタイミングで現れる）
+   バースト … このターンでバーストした人
+   ぴったり賞 … 最後のターンの公開で、合計が目標値ちょうどになった人 */
+.reveal-stamp {
   margin-top: 2px;
   font-size: 13px;
   animation: fade-in 0.4s calc(var(--delay) + 0.6s) both;
+}
+.reveal-card.is-exact {
+  background: var(--gold-soft);
+  border-color: var(--gold);
 }
 .reveal-card.is-duplicate {
   background: var(--red-soft);
@@ -1277,6 +1352,35 @@ body[data-screen="game"] .toast {
   background: var(--gray-soft);
   border-color: #b9b1a6;
 }
+/* ぴったり賞（勝者が目標値ちょうど）：枠を太くして、光が横切る演出をつける */
+.winner-card.is-exact {
+  position: relative;
+  overflow: hidden;
+  border-width: 3px;
+  box-shadow: 0 0 0 4px var(--gold-soft), 0 6px 24px rgba(169, 129, 42, 0.35);
+}
+.winner-card.is-exact::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.55) 50%, transparent 65%);
+  transform: translateX(-100%);
+  animation: shine 1.6s 0.6s ease-in-out 2;
+  pointer-events: none;
+}
+.winner-card .exact-ribbon {
+  display: inline-block;
+  margin: 6px 0 2px;
+  padding: 3px 18px;
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+  color: #fff;
+  background: linear-gradient(180deg, var(--red), var(--red-deep));
+  border-radius: 999px;
+  box-shadow: 0 2px 0 #5e1219;
+  animation: pop-in 0.5s 0.4s both;
+}
 .winner-card.is-nobody .winner-label {
   color: var(--ink);
 }
@@ -1324,6 +1428,9 @@ body[data-screen="game"] .toast {
   display: block;
   font-size: 12px;
   color: var(--ink-soft);
+}
+.rank-score .stamp-exact {
+  margin: 3px 0 0;
 }
 .rank-item.is-winner {
   background: var(--gold-soft);
@@ -1406,6 +1513,12 @@ body[data-screen="game"] .toast {
   from {
     opacity: 0;
     transform: translateY(14px) scale(0.97);
+  }
+}
+/* ぴったり賞のカードを、光が左から右へ横切る */
+@keyframes shine {
+  to {
+    transform: translateX(100%);
   }
 }
 @keyframes pop-in {

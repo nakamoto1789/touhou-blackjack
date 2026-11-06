@@ -2,12 +2,17 @@
 /* ============================================================
    style.css … 見た目（スマートフォンの縦画面を基本に作っています）
 
+   デザインの考え方：「和紙と朱墨の札遊び」
+     ・色は 生成り（和紙）・墨・朱 の3つが基本。強い色は大事なところにだけ使う
+     ・見出しと数字は明朝体、本文はゴシック体
+     ・角丸・グラデーション・影はほとんど使わず、罫線（細い線）で区切る
+
    目次
      1. 色・フォントなどの基本設定
-     2. 共通の部品（ボタン・カード・入力欄・タグ）
+     2. 共通の部品（ボタン・入力欄・タグ・ハンコ）
      3. お知らせ（バナー・トースト・ダイアログ）
      4. トップ／作成／参加／待機 画面
-     5. ゲーム画面（ステータスバー・スコア・キャラ一覧・決定欄）
+     5. ゲーム画面（ステータスバー・スコア・キャラ一覧・決定欄・オリジナル）
      6. ターン結果画面
      7. 最終結果画面
      8. 動き（アニメーション）
@@ -16,27 +21,31 @@
 /* ---------- 1. 基本設定 ---------- */
 :root {
   /* 色を変えたいときは、ここの値を書き換える */
-  --paper: #f6f1e7;        /* 背景（和紙のような色） */
-  --surface: #fffdf9;      /* カードの背景 */
-  --ink: #2b2420;          /* 文字（墨色） */
-  --ink-soft: #6f655e;     /* 補足の文字 */
-  --line: #e0d6c4;         /* 枠線 */
+  --paper: #f2ece1;        /* 背景（和紙のような生成り色） */
+  --paper-2: #e8dfcf;      /* 一段濃い和紙色（補足の箱など） */
+  --surface: #fbf8f2;      /* 札・入力欄の背景 */
+  --ink: #1c1916;          /* 文字（墨色） */
+  --ink-2: #5e554c;        /* 補足の文字 */
+  --ink-3: #8f857a;        /* さらに控えめな文字 */
+  --line: #d3c8b6;         /* 罫線 */
   --red: #b3202a;          /* 朱色（メインの色） */
   --red-deep: #7d1a22;
-  --red-soft: #fbe9e7;
-  --gold: #a9812a;
-  --gold-deep: #7a5a10;
-  --gold-soft: #f8eed2;
-  --green: #2c7a55;
-  --green-soft: #e2f3ea;
-  --gray-soft: #eeeae3;
+  --red-light: #e8746b;    /* 黒い背景の上で使う朱色（暗い背景でも読めるよう明るめ） */
+  --gold: #9c7320;         /* ぴったり賞 */
+  --gold-soft: #f3e7c8;
 
-  --radius: 14px;
-  --shadow: 0 2px 10px rgba(60, 40, 20, 0.08);
-  --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN",
-    "Yu Gothic UI", "Yu Gothic", "Noto Sans JP", Meiryo, sans-serif;
-  --font-serif: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif JP", serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* 黒い帯（ゲーム中の上の部分・勝者）の中で使う色 */
+  --night: #1c1916;
+  --night-line: #3d3833;
+  --night-text: #b9afa3;
+  --night-muted: #8a8178;
+
+  /* フォント。Webフォントが読み込めないときは、後ろに書いた端末のフォントが使われる */
+  --font-serif: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif JP", serif;
+  --font-sans: "Zen Kaku Gothic New", -apple-system, BlinkMacSystemFont, "Hiragino Sans",
+    "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", "Noto Sans JP", Meiryo, sans-serif;
+
+  --pad: 24px;             /* 画面の左右の余白 */
 }
 
 *,
@@ -53,9 +62,7 @@ body {
   margin: 0;
   min-height: 100dvh;
   color: var(--ink);
-  background-color: var(--paper);
-  background-image: radial-gradient(circle at 1px 1px, rgba(125, 26, 34, 0.07) 1px, transparent 0);
-  background-size: 18px 18px;
+  background: var(--paper);
   font-family: var(--font-sans);
   font-size: 16px;
   line-height: 1.6;
@@ -78,123 +85,171 @@ body {
 /* 画面は「active」がついた1つだけを表示する（util.js の showScreen が切り替える） */
 .screen {
   display: none;
-  padding: 20px 16px 32px;
+  padding: 20px var(--pad) 32px;
 }
 .screen.active {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 24px;
 }
 
 .screen-title {
-  margin: 12px 0 0;
+  margin: 8px 0 0;
   font-family: var(--font-serif);
-  font-size: 24px;
-  text-align: center;
-  color: var(--red-deep);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.35;
+  color: var(--ink);
 }
 
 .hint {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   text-align: center;
-  color: var(--ink-soft);
+  color: var(--ink-3);
+}
+/* 中身が空のメッセージは、すき間を作らないように隠す */
+.hint:empty {
+  display: none;
 }
 
 .text-out {
   color: var(--red);
-  font-weight: 800;
+  font-weight: 700;
 }
 .text-exact {
-  color: var(--gold-deep);
-  font-weight: 800;
+  color: var(--gold);
+  font-weight: 700;
 }
 
 /* ---------- 2. 共通の部品 ---------- */
 
-/* ボタン：指で押しやすいよう、高さを大きめにしている */
+/* ボタン：指で押しやすいよう、高さを大きめにしている。角はほぼ四角 */
 .btn {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   width: 100%;
-  min-height: 54px;
-  padding: 12px 18px;
-  border: 2px solid transparent;
-  border-radius: var(--radius);
+  min-height: 56px;
+  padding: 12px 20px;
+  border: 1.5px solid transparent;
+  border-radius: 2px;
   font: inherit;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
   line-height: 1.3;
   text-align: center;
   cursor: pointer;
   touch-action: manipulation;   /* ダブルタップでの拡大を防ぐ */
-  transition: transform 0.08s, opacity 0.15s;
+  transition: transform 0.08s, opacity 0.15s, background-color 0.15s;
 }
 .btn:active {
-  transform: scale(0.98);
+  transform: translateY(1px);
 }
 .btn:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
+.btn:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+/* 朱色のボタン（その画面でいちばん大事な操作） */
 .btn-primary {
-  color: #fff;
-  background: linear-gradient(180deg, #c62a34, #9c1c25);
-  box-shadow: 0 3px 0 #6e141b;
+  color: var(--surface);
+  background: var(--red);
 }
+.btn-primary:active {
+  background: var(--red-deep);
+}
+/* 墨色のボタン（トップ画面の「ルームを作成」） */
+.btn-ink {
+  color: var(--surface);
+  background: var(--ink);
+}
+/* 枠だけのボタン */
 .btn-secondary {
-  color: var(--red-deep);
-  background: var(--surface);
-  border-color: var(--red);
+  color: var(--ink);
+  background: transparent;
+  border-color: var(--ink);
 }
+/* 文字だけのボタン（もどる・遊び方など） */
 .btn-ghost {
   min-height: 44px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-2);
   background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 .btn-small {
-  min-height: 44px;
-  padding: 8px 10px;
-  font-size: 14px;
+  min-height: 42px;
+  padding: 8px 6px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--ink);
-  background: var(--surface);
+  background: transparent;
   border-color: var(--line);
+}
+/* 文字を左に、矢印を右に置くボタン */
+.btn-arrow {
+  justify-content: space-between;
+}
+.btn-arrow::after {
+  content: "→";
+  font-size: 18px;
+  font-weight: 400;
 }
 /* 決定ボタン：まだキャラクターを選んでいないときの見た目 */
 .btn.is-idle {
-  opacity: 0.5;
-  filter: grayscale(0.7);
+  opacity: 0.4;
 }
 
+/* 枠のある箱（作成・参加のフォーム、待機中の表示など） */
 .card {
-  padding: 16px;
+  padding: 18px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border-radius: 2px;
 }
 .card-title {
   margin: 0 0 4px;
   font-size: 16px;
 }
+
+/* 見出しの下に太い墨の線を引いた区切り（待機画面の「参加者」「ゲームモード」） */
+.section {
+  display: flex;
+  flex-direction: column;
+}
+.section-title {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin: 0;
+  padding-bottom: 10px;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 800;
+  border-bottom: 1.5px solid var(--ink);
+}
 .count {
-  margin-left: 6px;
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--ink-soft);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--red);
 }
 
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 .row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
 }
 .row > * {
   flex: 1;
@@ -206,8 +261,9 @@ body {
   gap: 6px;
 }
 .field-label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
+  color: var(--ink-2);
 }
 
 /* 入力欄：文字を16px以上にしておくと、iPhoneで入力時に画面が拡大されない */
@@ -218,41 +274,44 @@ body {
   font: inherit;
   font-size: 17px;
   color: var(--ink);
-  background: #fff;
-  border: 2px solid var(--line);
-  border-radius: 12px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: 2px;
   appearance: none;
   -webkit-appearance: none;
 }
+.input::placeholder {
+  color: var(--ink-3);
+}
 .input:focus {
   outline: none;
-  border-color: var(--red);
-  box-shadow: 0 0 0 3px rgba(179, 32, 42, 0.15);
+  border-color: var(--ink);
 }
 .input-room-id {
-  font-family: var(--font-mono);
-  font-size: 26px;
+  font-family: var(--font-serif);
+  font-size: 28px;
   font-weight: 800;
-  letter-spacing: 0.3em;
+  letter-spacing: 0.4em;
   text-align: center;
   text-transform: uppercase;
 }
 .input-room-id::placeholder {
-  font-weight: 400;
-  color: #cfc6b8;
+  font-weight: 600;
+  color: var(--line);
 }
 
 .form-error {
   margin: 0;
   padding: 10px 12px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   white-space: pre-line;   /* 問題が複数あるときは、1つずつ改行して出す */
   color: var(--red-deep);
-  background: var(--red-soft);
-  border-radius: 10px;
+  background: transparent;
+  border-left: 3px solid var(--red);
 }
 
+/* 小さな札（あなた・ホスト・オフライン） */
 .tag {
   flex: none;
   display: inline-block;
@@ -262,55 +321,48 @@ body {
   line-height: 1.5;
   white-space: nowrap;
   vertical-align: middle;
-  border-radius: 999px;
+  border: 1px solid transparent;
+  border-radius: 2px;
 }
 .tag-me {
   margin-left: 6px;
-  color: #fff;
-  background: var(--red);
+  color: var(--ink);
+  border-color: var(--ink);
 }
 .tag-host {
-  color: var(--gold-deep);
-  background: var(--gold-soft);
-  border: 1px solid var(--gold);
+  color: var(--surface);
+  background: var(--red);
 }
 .tag-offline {
-  color: #fff;
-  background: #7d766f;
+  color: var(--surface);
+  background: var(--ink-3);
 }
 
-/* 赤いハンコ風の「バースト」 */
-.stamp-out {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 8px;
-  font-size: 0.9em;
-  font-weight: 900;
-  line-height: 1.5;
-  letter-spacing: 0.08em;
-  color: var(--red);
-  background: #fff;
-  border: 2px solid var(--red);
-  border-radius: 6px;
-  transform: rotate(-6deg);
-}
-/* 金色のハンコ風の「ぴったり賞」（形は「バースト」と同じで、色だけ変える） */
+/* 朱色のハンコ風の「バースト」 */
+.stamp-out,
 .stamp-exact {
   display: inline-block;
   margin-left: 6px;
   padding: 0 8px;
+  font-family: var(--font-serif);
   font-size: 0.9em;
-  font-weight: 900;
-  line-height: 1.5;
+  font-weight: 800;
+  line-height: 1.6;
   letter-spacing: 0.08em;
-  color: var(--gold-deep);
-  background: #fffbea;
-  border: 2px solid var(--gold);
-  border-radius: 6px;
+  white-space: nowrap;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
   transform: rotate(-6deg);
 }
+.stamp-out {
+  color: var(--red);
+}
+/* 金色のハンコ風の「ぴったり賞」（形は「バースト」と同じで、色だけ変える） */
+.stamp-exact {
+  color: var(--gold);
+}
 
-/* 陰陽玉のマーク（画像ファイルを使わず、index.html の中のSVGで描いている） */
+/* 陰陽玉のマーク（読み込み中の画面で使う。index.html の中のSVGで描いている） */
 .yinyang {
   display: block;
   width: 64px;
@@ -321,13 +373,13 @@ body {
 /* ---------- 3. お知らせ ---------- */
 .banner {
   padding: 6px 12px;
-  font-size: 13px;
+  font-size: 12px;
   text-align: center;
 }
 .banner-demo {
-  color: #6b4e00;
-  background: #fff3c4;
-  border-bottom: 1px solid #e6cf7a;
+  color: var(--ink);
+  background: var(--gold-soft);
+  border-bottom: 1px solid var(--line);
 }
 .banner-offline {
   position: fixed;
@@ -335,8 +387,8 @@ body {
   left: 0;
   right: 0;
   z-index: 50;
-  color: #fff;
-  background: #4a4340;
+  color: var(--surface);
+  background: var(--ink);
 }
 
 .toast {
@@ -347,13 +399,13 @@ body {
   width: max-content;
   max-width: min(92vw, 440px);
   padding: 12px 18px;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   text-align: center;
-  color: #fff;
-  background: rgba(43, 36, 32, 0.96);
-  border-radius: 12px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  color: var(--surface);
+  background: var(--ink);
+  border-radius: 2px;
+  box-shadow: 0 8px 24px rgba(28, 25, 22, 0.25);
   transform: translateX(-50%);
   animation: toast-in 0.25s both;
 }
@@ -362,31 +414,33 @@ body {
 }
 /* ゲーム画面では、下の決定欄に重ならない高さに出す */
 body[data-screen="game"] .toast {
-  bottom: calc(210px + env(safe-area-inset-bottom));
+  bottom: calc(170px + env(safe-area-inset-bottom));
 }
 
 .dialog {
   width: min(92vw, 420px);
   max-height: 86dvh;
-  padding: 20px;
+  padding: 22px;
   overflow-y: auto;
   color: var(--ink);
   background: var(--surface);
   border: none;
-  border-radius: 18px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  border-top: 4px solid var(--red);
+  border-radius: 2px;
+  box-shadow: 0 16px 48px rgba(28, 25, 22, 0.35);
 }
 .dialog::backdrop {
-  background: rgba(30, 20, 15, 0.55);
+  background: rgba(28, 25, 22, 0.6);
 }
 .dialog-title {
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   font-family: var(--font-serif);
-  font-size: 20px;
-  color: var(--red-deep);
+  font-size: 21px;
+  font-weight: 800;
+  color: var(--ink);
 }
 .dialog-message {
-  margin: 0 0 16px;
+  margin: 0 0 18px;
   font-size: 15px;
   white-space: pre-line;   /* メッセージの中の改行を、そのまま改行として表示する */
 }
@@ -394,36 +448,40 @@ body[data-screen="game"] .toast {
   display: none;
 }
 .rules {
-  margin: 0 0 16px;
+  margin: 0 0 18px;
   padding-left: 1.4em;
-  font-size: 15px;
+  font-size: 14px;
+  line-height: 1.75;
 }
 .rules li {
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+}
+.rules li::marker {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  color: var(--red);
 }
 .rules-example {
-  font-size: 14px;
-  color: var(--ink-soft);
+  font-size: 13px;
+  color: var(--ink-2);
 }
 /* 「遊び方」の見出しの横に出すゲームモード（例：（ハード）） */
 .rules-mode {
   margin-left: 6px;
   font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-3);
 }
 /* 「遊び方」の上の部分：モードごとの説明と、注意書き */
 .rules-modes {
-  margin: 0 0 14px;
-  padding: 12px 14px;
-  font-size: 14px;
-  background: #fffaf0;
-  border: 1.5px solid var(--line);
-  border-radius: 12px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  font-size: 13px;
+  background: var(--paper);
 }
 .rules-mode-block {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .rules-mode-block p {
   margin: 0;
@@ -432,20 +490,25 @@ body[data-screen="game"] .toast {
   margin: 0 0 2px;
   font-family: var(--font-serif);
   font-size: 16px;
-  color: var(--red-deep);
+  font-weight: 800;
+  color: var(--ink);
 }
 /* 「スティールはありません」の注意書き */
 .rules-note {
   margin: 0;
   padding-top: 10px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--red-deep);
-  border-top: 1px dashed var(--line);
+  border-top: 1px solid var(--line);
 }
 .rules-heading {
-  margin: 0 0 6px;
-  font-size: 15px;
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 800;
+  border-bottom: 1.5px solid var(--ink);
 }
 
 /* ---------- 4. トップ／作成／参加／待機 ---------- */
@@ -457,46 +520,130 @@ body[data-screen="game"] .toast {
   gap: 14px;
   min-height: 70dvh;
   text-align: center;
-  color: var(--ink-soft);
+  color: var(--ink-2);
 }
 .loading .yinyang {
   animation: spin 2.4s linear infinite;
 }
 
+/* ---- トップ画面 ---- */
 .hero {
-  padding: 24px 0 4px;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding-top: max(4px, env(safe-area-inset-top));
 }
+.hero p {
+  margin: 0;
+}
+.hero-eyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* 「第22回東方Project人気投票」。左に朱色の短い線をつける */
 .hero-sub {
-  margin: 14px 0 0;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: var(--gold);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+.hero-sub::before {
+  content: "";
+  width: 14px;
+  height: 2px;
+  background: var(--red);
+}
+.hero-unofficial {
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.hero-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
 }
 .hero-title {
-  margin: 4px 0 12px;
+  flex: 1;
+  margin: 0;
   font-family: var(--font-serif);
-  font-size: clamp(28px, 8.6vw, 38px);
-  line-height: 1.25;
-  color: var(--red-deep);
+  font-size: clamp(34px, 11vw, 46px);
+  font-weight: 800;
+  line-height: 1.18;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+/* 右側の朱色の帯。writing-mode で文字を縦書きにしている */
+.hero-band {
+  flex: none;
+  padding: 14px 12px;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--surface);
+  background: var(--red);
+  writing-mode: vertical-rl;
+}
+/* 飾りのかるた札3枚。札の位置と傾きは、下の nth-child でそれぞれ決めている */
+.hero-deck {
+  position: relative;
+  aspect-ratio: 342 / 196;
+}
+.karuta {
+  position: absolute;
+  width: 31.5%;
+  aspect-ratio: 108 / 152;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 8px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  /* 内側の朱色の細い枠は、内向きの影（inset）を2枚重ねて描いている */
+  box-shadow:
+    inset 0 0 0 8px var(--surface),
+    inset 0 0 0 9px var(--red),
+    0 6px 14px rgba(28, 25, 22, 0.13);
+}
+.karuta:nth-child(1) { left: 1%;  top: 15%; transform: rotate(-6deg); }
+.karuta:nth-child(2) { left: 34.5%; top: 7%;  transform: rotate(3deg); }
+.karuta:nth-child(3) { left: 67%; top: 17%; transform: rotate(8deg); }
+.karuta-rank {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--red);
+}
+.karuta-name {
+  font-family: var(--font-serif);
+  font-size: clamp(11px, 3.4vw, 15px);
+  font-weight: 800;
+  white-space: nowrap;
+}
+.karuta-yomi {
+  font-size: 8px;
+  color: var(--ink-3);
+  white-space: nowrap;
 }
 .hero-lead {
-  margin: 0;
-  font-size: 15px;
-  color: var(--ink-soft);
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.6;
 }
 .hero-lead strong {
-  font-size: 20px;
   color: var(--red);
 }
 /* 遊べるゲームモード（例：ハード：150点を目指す ／ ノーマル：50点を目指す ／ …） */
 .hero-modes {
-  margin: 8px 0 0;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--gold);
+  margin-top: -16px !important;
+  font-size: 12px;
+  color: var(--ink-2);
 }
 /* 幅が足りないときは「／」のところで改行する（言葉の途中では改行しない） */
 .hero-modes span {
@@ -504,36 +651,59 @@ body[data-screen="game"] .toast {
 }
 
 .fan-notice {
-  margin-top: 8px;
-  font-size: 12px;
-  line-height: 1.7;
-  text-align: center;
-  color: var(--ink-soft);
+  padding-top: 16px;
+  font-size: 10px;
+  line-height: 1.75;
+  color: var(--ink-3);
+  border-top: 1px solid var(--line);
 }
 .fan-notice p {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
 }
 
+/* ---- 待機画面：ルームID ---- */
 .room-card {
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+.section-head p {
+  margin: 0;
 }
 .room-label {
-  margin: 0;
-  font-size: 13px;
-  color: var(--ink-soft);
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  color: var(--ink-2);
 }
+.room-note {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+/* ルームIDの1文字ずつを札にする（views.js の renderLobby が <span> に分けて入れる） */
 .room-id {
-  margin: 0 0 10px;
-  font-family: var(--font-mono);
-  font-size: 44px;
-  font-weight: 900;
-  line-height: 1.3;
-  letter-spacing: 0.18em;
-  color: var(--red-deep);
+  display: flex;
+  gap: 8px;
+  margin: 0;
   user-select: all;
 }
-.btn-qr {
-  margin-top: 10px;
+.room-id span {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 64px;
+  font-family: var(--font-serif);
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--ink);
+  background: var(--surface);
+  border-bottom: 3px solid var(--ink);
 }
 
 /* 招待用のQRコード */
@@ -550,7 +720,6 @@ body[data-screen="game"] .toast {
   /* 読み取りやすいよう、QRコードのまわりは必ず白にする */
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 12px;
   overflow: hidden;
 }
 .qr-box svg {
@@ -563,74 +732,101 @@ body[data-screen="game"] .toast {
   margin: 0;
   padding: 16px;
   font-size: 14px;
-  color: var(--ink-soft);
+  color: var(--ink-2);
 }
 .qr-room {
-  margin: 12px 0 0;
-  font-size: 14px;
-  color: var(--ink-soft);
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
 }
 .qr-room strong {
   margin-left: 6px;
-  font-family: var(--font-mono);
+  font-family: var(--font-serif);
   font-size: 26px;
+  font-weight: 800;
   letter-spacing: 0.15em;
-  color: var(--red-deep);
+  color: var(--ink);
 }
 .qr-hint {
-  margin: 6px 0 16px;
-  font-size: 14px;
+  margin: 6px 0 18px;
+  font-size: 13px;
   line-height: 1.6;
+  color: var(--ink-2);
 }
 
+/* ---- 待機画面：参加者 ---- */
+/* 参加者の番号を「壱・弐・参・肆・伍」で数える（対応していないブラウザでは 1, 2, 3 …） */
+@counter-style daiji {
+  system: fixed;
+  symbols: "壱" "弐" "参" "肆" "伍";
+  suffix: "";
+  fallback: decimal;
+}
 .player-list {
   margin: 0;
   padding: 0;
   list-style: none;
+  counter-reset: player;
 }
 .player-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 0;
-  font-size: 17px;
+  gap: 10px;
+  min-height: 54px;
+  padding: 8px 0;
+  font-size: 15px;
   border-bottom: 1px solid var(--line);
+  counter-increment: player;
 }
-.player-item:last-child {
-  border-bottom: none;
+.player-item::before {
+  content: counter(player, daiji);
+  flex: none;
+  width: 1.6em;
+  font-family: var(--font-serif);
+  font-weight: 800;
+  color: var(--red);
 }
 .player-name {
-  font-weight: 700;
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
 }
 .player-item .tag-me {
   margin-left: 0;
 }
 .player-item.is-offline .player-name {
-  color: #a39b93;
+  color: var(--ink-3);
+}
+/* まだだれも入っていない枠 */
+.player-item.is-empty {
+  color: var(--ink-3);
+}
+.player-item.is-empty::before {
+  color: var(--line);
 }
 
-/* ゲームモードの選択（待機画面） */
+/* ---- 待機画面：ゲームモードの選択 ---- */
 .mode-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 8px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 .mode-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  min-height: 48px;
-  padding: 6px 12px;
+  min-height: 56px;
+  padding: 12px 14px;
   font: inherit;
   text-align: left;
   color: var(--ink);
-  background: var(--surface);
-  border: 2px solid var(--line);
-  border-radius: 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
   cursor: pointer;
   touch-action: manipulation;
 }
@@ -643,8 +839,7 @@ body[data-screen="game"] .toast {
   flex: none;
   width: 18px;
   height: 18px;
-  background: #fff;
-  border: 2px solid #b9b1a6;
+  border: 1.5px solid var(--ink-3);
   border-radius: 50%;
 }
 /* モードの名前と、その下のひとことの説明 */
@@ -653,70 +848,64 @@ body[data-screen="game"] .toast {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 1px;
 }
 .mode-name {
   font-family: var(--font-serif);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 800;
   line-height: 1.4;
-  letter-spacing: 0.04em;
 }
 /* 例：150点を目指す */
 .mode-detail {
   font-size: 12px;
   line-height: 1.5;
-  color: var(--ink-soft);
+  color: var(--ink-2);
 }
 /* 「準備中」の札（config.js で available を false にしたモードにつく） */
 .mode-tag {
   flex: none;
-  padding: 2px 10px;
-  font-size: 12px;
+  padding: 2px 8px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
-  color: #fff;
-  background: #8b8580;
-  border-radius: 999px;
+  color: var(--ink-3);
+  border: 1px solid var(--ink-3);
+  border-radius: 2px;
 }
 /* 準備中のモード */
 .mode-row.is-soon {
-  color: #a39b93;
-  background: var(--gray-soft);
-  border-style: dashed;
+  color: var(--ink-3);
 }
-.mode-row.is-soon .mode-radio {
-  background: transparent;
+.mode-row.is-soon .mode-detail {
+  color: var(--ink-3);
 }
-/* いま選ばれているモード */
+/* いま選ばれているモード：札の色を明るくして、左に朱色の線を引く */
 .mode-row.is-selected {
-  background: var(--red-soft);
-  border-color: var(--red);
+  background: var(--surface);
+  box-shadow: inset 3px 0 0 var(--red);
 }
 .mode-row.is-selected .mode-radio {
   border-color: var(--red);
-  box-shadow: inset 0 0 0 3px #fff;
-  background: var(--red);
+  background: radial-gradient(circle, var(--red) 0 4px, transparent 4.5px);
 }
 .mode-note {
-  margin: 10px 0 0;
-  font-size: 13px;
+  margin: 12px 0 0;
+  font-size: 12px;
   text-align: center;
-  color: var(--ink-soft);
+  color: var(--ink-3);
 }
 
 /* 選ばれているモードのルール（目標値・バースト・ターン数・キャラクター） */
 .rules-box {
-  margin: 10px 0 0;
-  padding: 10px 14px;
-  background: #fffaf0;
-  border: 1.5px solid var(--line);
-  border-radius: 12px;
+  margin: 18px 0 0;
 }
 .rules-box-title {
   margin: 0 0 4px;
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--red-deep);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--red);
 }
 .rules-box dl {
   margin: 0;
@@ -726,16 +915,14 @@ body[data-screen="game"] .toast {
 .rules-box dl div {
   display: flex;
   gap: 12px;
-  padding: 3px 0;
-  border-bottom: 1px dashed var(--line);
-}
-.rules-box dl div:last-child {
-  border-bottom: none;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
 }
 .rules-box dt {
   flex: none;
-  width: 6.5em;
-  color: var(--ink-soft);
+  width: 7em;
+  font-size: 12px;
+  color: var(--ink-3);
 }
 .rules-box dd {
   flex: 1;
@@ -743,72 +930,63 @@ body[data-screen="game"] .toast {
   font-weight: 700;
 }
 
-/* オリジナルのルール設定（ホストにだけ表示される入力欄） */
-.original-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 10px 0 0;
-  padding: 12px 14px;
-  background: #fffaf0;
-  border: 1.5px solid var(--red);
-  border-radius: 12px;
+/* オリジナルの設定（数字の借り先・キャラの出し方）。ボタンはモードの一覧と同じ部品を使う */
+.original-options {
+  margin: 14px 0 0;
+  padding: 12px 14px 4px;
+  background: var(--paper-2);
 }
-.original-title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--red-deep);
-}
-/* 1行に「項目の名前」「入力欄」「単位」を並べる */
-.original-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-}
-.original-label {
-  flex: 1;
-  font-weight: 700;
-}
-.original-unit {
-  flex: none;
-  width: 3.8em;
-  font-size: 13px;
-  color: var(--ink-soft);
-}
-/* 順位の「開始 位 〜 終了 位」 */
-.original-range {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--ink-soft);
-}
-/* 数字を入れる小さな入力欄 */
-.input-number {
-  flex: none;
-  width: 5.4em;
-  min-height: 46px;
-  padding: 6px 10px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.original-count {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 700;
-  text-align: right;
-  color: var(--gold-deep);
-}
-.original-count:empty {
-  display: none;
-}
-.original-hint {
+.option-title {
   margin: 0;
   font-size: 12px;
-  color: var(--ink-soft);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--red);
+}
+.option-title + .option-list {
+  margin-top: 4px;
+}
+.option-list + .option-title {
+  margin-top: 14px;
+}
+/* モードの一覧より、少しだけ小さく */
+.option-list .mode-row {
+  min-height: 48px;
+  padding: 10px 12px;
+}
+.option-list .mode-row:last-child {
+  border-bottom: none;
+}
+.option-list .mode-name {
+  font-size: 15px;
+}
+
+/* 初心者（ヒントを表示）のチェック欄 */
+.hint-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  background: var(--gold-soft);
+  cursor: pointer;
+}
+.hint-toggle input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 1px 0 0;
+  accent-color: var(--red);
+}
+.hint-toggle-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.hint-toggle-text small {
+  font-size: 12px;
+  color: var(--ink-2);
 }
 
 /* ---------- 5. ゲーム画面 ---------- */
@@ -823,199 +1001,307 @@ body[data-screen="game"] .toast {
   top: 0;
   z-index: 20;
   background: var(--paper);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
+/* 墨色の帯：ターン・自分の合計・ゲージ */
 .status-bar {
-  padding: 8px 14px 10px;
-  padding-top: max(8px, env(safe-area-inset-top));
-  color: #fff;
-  background: linear-gradient(180deg, #3d2c27, #2b2420);
+  padding: 12px var(--pad) 16px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  color: var(--surface);
+  background: var(--night);
+}
+.status-bar p {
+  margin: 0;
 }
 .status-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 .status-turn {
   flex: none;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   white-space: nowrap;
-  color: #f1d9a0;
+}
+.status-turn-label {
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  color: var(--night-text);
 }
 .status-turn b {
-  font-size: 28px;
-  line-height: 1;
-  color: #fff;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 800;
 }
-/* 「残り ○ ターン」。幅が足りないときは、ここが縮んで「…」になる */
+/* ターンの進み具合（終わった・いま・これから） */
+.status-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.status-dots i {
+  width: 8px;
+  height: 4px;
+  background: var(--night-line);
+}
+.status-dots i.is-past {
+  background: var(--night-muted);
+}
+.status-dots i.is-now {
+  width: 18px;
+  background: var(--red);
+}
+/* 「残り ○」。幅が足りないときは、ここが縮んで「…」になる */
 .status-remain {
   min-width: 0;
   margin-right: auto;
   overflow: hidden;
-  font-size: 13px;
+  font-size: 11px;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: #d9cfc4;
+  color: var(--night-muted);
 }
 /* ゲームモードの札（例：ハード） */
 .status-mode {
   flex: none;
-  padding: 2px 10px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  color: #2b2420;
-  background: #f1d9a0;
-  border-radius: 999px;
-}
-/* とても幅のせまい画面では入りきらないので、札を出さない（メニューで確認できる） */
-@media (max-width: 345px) {
-  .status-mode {
-    display: none;
-  }
-}
-.status-menu {
-  flex: none;
-  width: 42px;
-  height: 42px;
-  font-size: 18px;
-  color: #fff;
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 10px;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-.status-total {
-  font-size: 14px;
-}
-.status-total b {
-  font-size: 30px;
-  line-height: 1.1;
-  color: #ffd98a;
-  font-variant-numeric: tabular-nums;
-}
-.status-rest {
-  margin-left: 6px;
-  padding: 2px 10px;
-  font-size: 13px;
-  white-space: nowrap;
-  background: rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
-}
-.status-target {
-  margin-left: auto;
-  font-size: 14px;
-  white-space: nowrap;
-  color: #d9cfc4;
-}
-.status-target b {
-  font-size: 20px;
-  color: #fff;
-}
-
-/* 全員の合計点と状況（上には固定しない。一覧と一緒にスクロールする） */
-.scoreboard {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 10px 10px 2px;
-  list-style: none;
-}
-.score-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 3px 6px 3px 10px;
-  font-size: 13px;
-  background: var(--surface);
-  border: 1.5px solid var(--line);
-  border-radius: 999px;
-}
-.score-chip.is-me {
-  border-color: var(--red);
-}
-.chip-name {
-  max-width: 6.5em;
-  overflow: hidden;
-  font-weight: 600;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.chip-total {
-  font-size: 15px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-.chip-status {
-  padding: 1px 7px;
+  padding: 1px 8px;
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
-  color: var(--ink-soft);
-  background: var(--gray-soft);
-  border-radius: 999px;
+  color: var(--night-text);
+  border: 1px solid var(--night-line);
+  border-radius: 2px;
 }
-.score-chip.is-done .chip-status {
-  color: var(--green);
-  background: var(--green-soft);
+/* とても幅のせまい画面では入りきらないので、札を出さない（メニューで確認できる） */
+@media (max-width: 360px) {
+  .status-mode,
+  .status-remain {
+    display: none;
+  }
+  .status-turn {
+    margin-right: auto;
+  }
 }
-.score-chip.is-out .chip-status {
-  color: #fff;
+/* メニューボタン（三本線は <i> 3つで描いている） */
+.status-menu {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 40px;
+  height: 40px;
+  margin-right: -8px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.status-menu i {
+  width: 20px;
+  height: 1.5px;
+  background: var(--surface);
+}
+.status-score {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+.status-label {
+  font-size: 11px;
+  color: var(--night-text);
+}
+.status-total {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-serif);
+  font-weight: 800;
+  line-height: 1.05;
+}
+.status-total b {
+  font-size: 52px;
+  font-variant-numeric: tabular-nums;
+}
+.status-total span {
+  font-size: 18px;
+  color: var(--night-muted);
+}
+.status-watching {
+  font-size: 14px;
+}
+.status-side {
+  padding-bottom: 8px;
+  text-align: right;
+}
+.status-rest {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 800;
+  white-space: nowrap;
+  color: var(--red-light);
+}
+.status-side .stamp-out {
+  font-size: 15px;
+  color: var(--red-light);
+}
+/* ゲージ。左端が 0 点、右端がバーストする点数 */
+.status-gauge {
+  margin-top: 12px;
+}
+.gauge-bar {
+  position: relative;
+  height: 6px;
+  background: var(--night-line);
+}
+.gauge-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
   background: var(--red);
+  transition: width 0.5s ease-out;
 }
-.score-chip.is-offline .chip-status {
-  color: #fff;
-  background: #7d766f;
+.status-gauge.is-out .gauge-fill {
+  background: var(--night-muted);
 }
-.score-chip.is-out .chip-name,
-.score-chip.is-out .chip-total {
-  color: #a39b93;
+/* 目標値の位置の目盛り */
+.gauge-target {
+  position: absolute;
+  top: -4px;
+  width: 2px;
+  height: 14px;
+  background: var(--surface);
+  transform: translateX(-1px);
+}
+.gauge-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--night-muted);
 }
 
+/* 全員の合計点と状況（上には固定しない。一覧と一緒にスクロールする）。人数分の列に等分する */
+.scoreboard {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 0 var(--pad);
+  list-style: none;
+  border-bottom: 1px solid var(--line);
+}
+.score-chip {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 12px 8px 12px 10px;
+  border-right: 1px solid var(--line);
+}
+.score-chip:first-child {
+  padding-left: 0;
+}
+.score-chip:last-child {
+  border-right: none;
+}
+.chip-name {
+  overflow: hidden;
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+}
+.score-chip.is-me .chip-name {
+  font-weight: 700;
+  color: var(--red);
+}
+.chip-total {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+.chip-status {
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+.score-chip.is-done .chip-status {
+  color: var(--ink);
+}
+.score-chip.is-done .chip-status::before {
+  content: "✓ ";
+}
+.score-chip.is-thinking .chip-status::before {
+  content: "… ";
+}
+.score-chip.is-out .chip-status {
+  color: var(--red);
+}
+.score-chip.is-out .chip-status::before {
+  content: "× ";
+}
+.score-chip.is-offline .chip-status {
+  color: var(--ink-2);
+}
+.score-chip.is-out .chip-total {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+
+/* 検索欄（虫めがねの絵は、背景に小さなSVGを置いている） */
 .search-row {
-  padding: 8px 10px;
-  background: #fffaf0;
+  padding: 12px var(--pad) 10px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
 }
 .input-search {
   min-height: 46px;
+  padding-left: 40px;
+  font-size: 16px;
+  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238f857a' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-4-4'/%3E%3C/svg%3E") no-repeat 14px center / 17px;
 }
 
 .picker-hint {
   margin: 0;
-  padding: 6px 14px 8px;
-  font-size: 13px;
-  color: var(--ink-soft);
+  padding: 14px var(--pad) 4px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-2);
 }
 
 /* キャラクター一覧 */
 .char-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
   min-height: 55dvh;   /* 検索結果が少なくても、決定欄が上に飛び上がらないように */
   margin: 0;
-  padding: 0 10px 14px;
+  padding: 0 var(--pad) 18px;
   list-style: none;
 }
-/* 50音の見出し（「あ」「か」「さ」…） */
+/* 50音の見出し（「あ」「か」「さ」…）。右に細い線を伸ばす */
 .char-header {
-  margin-top: 8px;
-  padding: 2px 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 0 4px;
   font-family: var(--font-serif);
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 800;
-  color: var(--red-deep);
-  border-bottom: 2px solid var(--line);
+  color: var(--red);
 }
-.char-header:first-child {
-  margin-top: 0;
+.char-header::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
 }
 /* 1人分の行。表示するのは名前だけ（順位やポイントは、ここには出さない） */
 .char-row {
@@ -1023,34 +1309,47 @@ body[data-screen="game"] .toast {
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 52px;
-  padding: 8px 14px;
+  min-height: 54px;
+  padding: 8px 12px;
   font: inherit;
   text-align: left;
   color: inherit;
-  background: var(--surface);
-  border: 2px solid var(--line);
-  border-radius: 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
   cursor: pointer;
   touch-action: manipulation;
 }
 .char-name {
   flex: 1;
-  font-size: 16px;
-  font-weight: 600;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 800;
   line-height: 1.35;
 }
-/* タップして選んでいるキャラクター */
+/* タップして選んでいるキャラクター：左に朱色の線、右に ✓ */
 .char-row.is-selected {
-  background: var(--red-soft);
-  border-color: var(--red);
-  box-shadow: 0 0 0 2px rgba(179, 32, 42, 0.18);
+  background: var(--surface);
+  box-shadow: inset 3px 0 0 var(--red);
+}
+.char-row.is-selected::after {
+  content: "✓";
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--red);
+  border: 1.5px solid var(--red);
+  border-radius: 50%;
 }
 /* 重複して使用禁止になったキャラクター */
 .char-row.is-banned {
-  color: #a39b93;
-  background: var(--gray-soft);
-  border-style: dashed;
+  color: var(--ink-3);
   cursor: not-allowed;
 }
 .char-row.is-banned .char-name {
@@ -1058,17 +1357,18 @@ body[data-screen="game"] .toast {
 }
 .char-tag {
   flex: none;
-  padding: 2px 8px;
-  font-size: 12px;
+  padding: 1px 6px;
+  font-size: 10px;
   font-weight: 700;
-  color: #fff;
-  background: #8b8580;
-  border-radius: 999px;
+  color: var(--ink-3);
+  border: 1px solid var(--ink-3);
+  border-radius: 2px;
 }
 .char-empty {
   padding: 32px 12px;
+  font-size: 14px;
   text-align: center;
-  color: var(--ink-soft);
+  color: var(--ink-2);
 }
 
 /* 下に固定される決定欄 */
@@ -1078,14 +1378,13 @@ body[data-screen="game"] .toast {
   z-index: 15;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 14px calc(10px + env(safe-area-inset-bottom));
+  gap: 10px;
+  padding: 14px var(--pad) calc(14px + env(safe-area-inset-bottom));
   background: var(--surface);
-  border-top: 2px solid var(--red);
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+  border-top: 1.5px solid var(--ink);
 }
 .pick-panel .btn {
-  min-height: 50px;
+  min-height: 52px;
 }
 .pick-info p {
   margin: 0;
@@ -1093,17 +1392,104 @@ body[data-screen="game"] .toast {
 }
 .pick-empty {
   padding: 4px 0;
-  font-size: 14px;
+  font-size: 13px;
   text-align: center;
-  color: var(--ink-soft);
+  color: var(--ink-2);
 }
 .pick-name {
-  font-size: 19px;
+  font-family: var(--font-serif);
+  font-size: 20px;
   font-weight: 800;
 }
 .pick-note {
-  font-size: 13px;
-  color: var(--ink-soft);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* ---- オリジナル：出たキャラと「持つ／持たない」 ---- */
+.draw {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px var(--pad) 32px;
+}
+.draw .picker-hint {
+  padding: 12px 0 0;
+}
+/* 出たキャラのかるた札。名前は縦書きで大きく出す */
+.draw-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(220px, 70%);
+  min-height: 300px;
+  margin: 6px auto 8px;
+  padding: 24px 16px 20px;
+  text-align: center;
+  border: 1px solid var(--line);
+  /* 内側の朱色の枠と、後ろにもう1枚重なっているように見える札を、影を重ねて描いている */
+  box-shadow:
+    inset 0 0 0 10px var(--surface),
+    inset 0 0 0 11.5px var(--red),
+    7px 7px 0 -1px var(--paper-2),
+    7px 7px 0 0 var(--line),
+    0 14px 28px rgba(28, 25, 22, 0.14);
+  animation: card-in 0.4s both;
+}
+.draw-card p {
+  margin: 0;
+}
+.draw-label {
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: var(--red);
+}
+/* 縦書きの名前。長い名前は左の列に折り返す */
+.draw-name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 6.4em;
+  font-family: var(--font-serif);
+  font-size: clamp(30px, 9vw, 38px);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  writing-mode: vertical-rl;
+}
+/* 初心者のヒント（順位の大まかな範囲） */
+.draw-hint {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gold);
+  background: var(--gold-soft);
+}
+.draw-note {
+  font-size: 10px;
+  color: var(--ink-3);
+}
+.draw-buttons {
+  display: flex;
+  gap: 10px;
+}
+.draw-buttons .btn {
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 76px;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 800;
+}
+.draw-buttons .btn small {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.8;
 }
 
 /* 決定したあとの待機表示 */
@@ -1111,78 +1497,136 @@ body[data-screen="game"] .toast {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 18px 16px 32px;
+  padding: 22px var(--pad) 32px;
 }
 .waiting-mine {
   text-align: center;
+  box-shadow: inset 3px 0 0 var(--red);
 }
 .waiting-mine p {
   margin: 0;
 }
 .waiting-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--ink-soft);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--ink-2);
 }
 .waiting-char {
-  padding: 6px 0 4px;
+  padding: 8px 0 4px;
   font-family: var(--font-serif);
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 800;
   line-height: 1.3;
-  color: var(--red-deep);
+  color: var(--ink);
 }
 .waiting-text {
+  font-size: 14px;
+}
+/* オリジナルで決めた「持つ／持たない」 */
+.waiting-decision {
+  display: inline-block;
+  margin: 4px 0 !important;
+  padding: 2px 16px;
+  font-family: var(--font-serif);
   font-size: 15px;
+  font-weight: 800;
+  border-radius: 2px;
+}
+.waiting-decision.is-keep {
+  color: var(--surface);
+  background: var(--red);
+}
+.waiting-decision.is-pass {
+  color: var(--ink-2);
+  border: 1px solid var(--ink-3);
 }
 .waiting-note {
-  margin-top: 6px !important;
-  font-size: 12px;
-  color: var(--ink-soft);
+  margin-top: 8px !important;
+  font-size: 11px;
+  color: var(--ink-3);
 }
 
 /* ---------- 6. ターン結果画面 ---------- */
 .reveal-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px 16px 32px;
+  gap: 20px;
+  padding: 24px var(--pad) 32px;
 }
 .reveal-title {
-  margin: 4px 0 0;
+  margin: 0;
   font-family: var(--font-serif);
-  font-size: 28px;
-  text-align: center;
-  color: var(--red-deep);
-  animation: pop-in 0.5s both;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.35;
+  color: var(--ink);
+  animation: card-in 0.45s both;
 }
 .reveal-turn {
   display: block;
+  margin-bottom: 2px;
   font-family: var(--font-sans);
-  font-size: 13px;
-  letter-spacing: 0.2em;
-  color: var(--gold);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--red);
 }
 .reveal-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
+  border-top: 1.5px solid var(--ink);
 }
 /* カードは上から順に時間差で現れる。--i は views.js がつける順番（0, 1, 2 …） */
 .reveal-card {
   --delay: calc(0.7s + var(--i) * 0.75s);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  background: var(--surface);
-  border: 2px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  gap: 14px;
+  padding: 16px 12px;
+  border-bottom: 1px solid var(--line);
   animation: card-in 0.45s var(--delay) both;
+}
+/* 左の判子：人気投票の順位 */
+.reveal-seal {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  width: 54px;   /* 3けたの順位（121位 など）も入る幅 */
+  height: 48px;
+  padding-top: 10px;
+  font-family: var(--font-serif);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--surface);
+  background: var(--red);
+  animation: pop-in 0.4s calc(var(--delay) + 0.2s) both;
+}
+.reveal-seal b {
+  font-size: 19px;
+}
+/* 加点されなかった人の判子は、枠だけにする */
+.reveal-card.is-pass .reveal-seal,
+.reveal-card.is-none .reveal-seal,
+.reveal-card.is-invalid .reveal-seal,
+.reveal-card.is-skipped .reveal-seal {
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--ink-3);
+}
+.reveal-card.is-skipped .reveal-seal {
+  align-items: center;
+  padding-top: 0;
+  font-size: 12px;
+}
+.reveal-card.is-duplicate .reveal-seal {
+  color: var(--red);
+  background: transparent;
+  border: 1px solid var(--red);
 }
 /* カードの中身：左に「だれが・だれを選んだか」、右に「加点・合計」 */
 .reveal-left {
@@ -1195,44 +1639,46 @@ body[data-screen="game"] .toast {
   white-space: nowrap;
 }
 .reveal-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--ink-soft);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.reveal-name .tag-me {
+  margin-left: 4px;
+  padding: 0 5px;
+  font-size: 10px;
 }
 .reveal-pick {
-  font-size: 18px;
+  font-family: var(--font-serif);
+  font-size: 17px;
   font-weight: 800;
-  line-height: 1.35;
-}
-.reveal-pick small {
-  margin-left: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--ink-soft);
+  line-height: 1.4;
 }
 /* 加点は、カードが出た少しあとに「ポン」と現れる */
 .reveal-gain {
-  font-size: 28px;
-  font-weight: 900;
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 800;
   line-height: 1.15;
-  color: var(--green);
+  color: var(--red);
   font-variant-numeric: tabular-nums;
   animation: pop-in 0.4s calc(var(--delay) + 0.35s) both;
 }
 .reveal-note {
   margin-right: 6px;
-  font-size: 12px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
   vertical-align: middle;
 }
 /* 合計は、加点のさらにあとに現れる */
 .reveal-total {
-  font-size: 13px;
-  color: var(--ink-soft);
+  font-size: 11px;
+  color: var(--ink-2);
   animation: fade-in 0.4s calc(var(--delay) + 0.6s) both;
 }
 .reveal-total b {
-  font-size: 19px;
+  font-family: var(--font-serif);
+  font-size: 15px;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
@@ -1240,56 +1686,40 @@ body[data-screen="game"] .toast {
    バースト … このターンでバーストした人
    ぴったり賞 … 最後のターンの公開で、合計が目標値ちょうどになった人 */
 .reveal-stamp {
-  margin-top: 2px;
-  font-size: 13px;
+  margin-top: 4px;
+  font-size: 12px;
   animation: fade-in 0.4s calc(var(--delay) + 0.6s) both;
 }
 .reveal-card.is-exact {
   background: var(--gold-soft);
-  border-color: var(--gold);
-}
-.reveal-card.is-duplicate {
-  background: var(--red-soft);
-  border-color: var(--red);
 }
 .reveal-card.is-duplicate .reveal-gain,
+.reveal-card.is-none .reveal-gain,
+.reveal-card.is-invalid .reveal-gain,
+.reveal-card.is-pass .reveal-gain {
+  color: var(--ink-3);
+}
 .reveal-card.is-out .reveal-gain {
   color: var(--red);
 }
-.reveal-card.is-none .reveal-gain,
-.reveal-card.is-invalid .reveal-gain {
-  color: var(--ink-soft);
-}
-.reveal-card.is-none .reveal-pick {
-  color: var(--ink-soft);
-}
-.reveal-card.is-out {
-  border-color: var(--red-deep);
-}
-.reveal-card.is-skipped {
-  background: var(--gray-soft);
-  box-shadow: none;
-}
+.reveal-card.is-none .reveal-pick,
 .reveal-card.is-skipped .reveal-pick {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ink-soft);
+  color: var(--ink-3);
 }
 
 .banned-note {
-  padding: 10px 14px;
-  font-size: 14px;
-  background: var(--gray-soft);
-  border: 2px dashed #b9b1a6;
-  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  background: var(--paper-2);
 }
 .banned-note b {
   margin-right: 8px;
-  padding: 2px 8px;
-  font-size: 12px;
-  color: #fff;
-  background: #8b8580;
-  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--ink-2);
+  border: 1px solid var(--ink-3);
+  border-radius: 2px;
 }
 /* 全員のカードが出そろってから現れる */
 .banned-note,
@@ -1303,187 +1733,262 @@ body[data-screen="game"] .toast {
 }
 
 /* ---------- 7. 最終結果画面 ---------- */
+.result-head p,
+.result-head h2 {
+  margin: 0;
+}
+.result-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  color: var(--red);
+}
 .result-heading {
-  margin: 12px 0 0;
   font-family: var(--font-serif);
   font-size: 26px;
-  letter-spacing: 0.2em;
-  text-align: center;
-  color: var(--red-deep);
+  font-weight: 800;
+  line-height: 1.35;
 }
 .result-mode {
-  margin: -10px 0 0;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-align: center;
-  color: var(--gold-deep);
+  margin-top: 2px !important;
+  font-size: 12px;
+  color: var(--ink-3);
 }
+/* 勝者：墨色の大きな札 */
 .winner-card {
-  padding: 18px 16px;
-  text-align: center;
-  background: linear-gradient(160deg, #fff7dc, #f1dc9c);
-  border: 2px solid var(--gold);
-  border-radius: 18px;
-  box-shadow: var(--shadow);
-  animation: pop-in 0.6s both;
+  padding: 24px 22px;
+  color: var(--surface);
+  background: var(--night);
+  animation: card-in 0.6s both;
 }
 .winner-card p {
   margin: 0;
 }
+.winner-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
 .winner-label {
-  font-size: 18px;
-  font-weight: 900;
-  letter-spacing: 0.15em;
-  color: var(--gold-deep);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--night-text);
 }
 .winner-name {
-  padding: 4px 0;
   font-family: var(--font-serif);
-  font-size: 30px;
-  font-weight: 900;
+  font-size: 32px;
+  font-weight: 800;
   line-height: 1.3;
-  color: var(--red-deep);
+}
+.winner-score {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 18px !important;
+  padding-top: 14px;
+  font-family: var(--font-serif);
+  font-weight: 800;
+  line-height: 1.05;
+  border-top: 1px solid var(--night-line);
+}
+.winner-score b {
+  font-size: 52px;
+  font-variant-numeric: tabular-nums;
+}
+.winner-score span {
+  font-size: 18px;
+  color: var(--night-muted);
 }
 .winner-detail {
-  font-size: 15px;
+  margin-top: 8px !important;
+  font-size: 13px;
+  color: var(--night-text);
 }
+/* だれも勝てなかったとき */
 .winner-card.is-nobody {
-  background: var(--gray-soft);
-  border-color: #b9b1a6;
+  color: var(--ink);
+  background: var(--paper-2);
 }
-/* ぴったり賞（勝者が目標値ちょうど）：枠を太くして、光が横切る演出をつける */
+.winner-card.is-nobody .winner-label {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--ink);
+}
+.winner-card.is-nobody .winner-detail {
+  color: var(--ink-2);
+}
+/* ぴったり賞（勝者が目標値ちょうど）：光が横切る演出をつける */
 .winner-card.is-exact {
   position: relative;
   overflow: hidden;
-  border-width: 3px;
-  box-shadow: 0 0 0 4px var(--gold-soft), 0 6px 24px rgba(169, 129, 42, 0.35);
 }
 .winner-card.is-exact::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.55) 50%, transparent 65%);
+  background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.12) 50%, transparent 65%);
   transform: translateX(-100%);
   animation: shine 1.6s 0.6s ease-in-out 2;
   pointer-events: none;
 }
+/* 「ぴったり賞」の丸いハンコ */
 .winner-card .exact-ribbon {
-  display: inline-block;
-  margin: 6px 0 2px;
-  padding: 3px 18px;
-  font-size: 17px;
-  font-weight: 900;
-  letter-spacing: 0.2em;
-  color: #fff;
-  background: linear-gradient(180deg, var(--red), var(--red-deep));
-  border-radius: 999px;
-  box-shadow: 0 2px 0 #5e1219;
-  animation: pop-in 0.5s 0.4s both;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--red-light);
+  border: 2px solid var(--red-light);
+  border-radius: 50%;
+  transform: rotate(-8deg);
+  animation: stamp-in 0.5s 0.4s both;
 }
-.winner-card.is-nobody .winner-label {
-  color: var(--ink);
+.exact-ribbon small {
+  font-size: 12px;
 }
 
 .ranking {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
+  border-top: 1.5px solid var(--ink);
 }
 .rank-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  background: var(--surface);
-  border: 2px solid var(--line);
-  border-radius: var(--radius);
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
 }
 .rank-place {
   flex: none;
-  width: 2.8em;
-  font-weight: 900;
+  width: 52px;
+  white-space: nowrap;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 800;
   text-align: center;
-  color: var(--ink-soft);
+  color: var(--ink-3);
 }
 .rank-name {
   flex: 1;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1.35;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
 }
 .rank-score {
   flex: none;
+  font-size: 12px;
   text-align: right;
   line-height: 1.3;
 }
 .rank-score b {
+  font-family: var(--font-serif);
   font-size: 22px;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 .rank-score small {
   display: block;
-  font-size: 12px;
-  color: var(--ink-soft);
+  font-size: 11px;
+  color: var(--ink-2);
 }
 .rank-score .stamp-exact {
-  margin: 3px 0 0;
-}
-.rank-item.is-winner {
-  background: var(--gold-soft);
-  border-color: var(--gold);
+  margin: 4px 0 0;
 }
 .rank-item.is-winner .rank-place {
-  color: var(--gold-deep);
-}
-.rank-item.is-out {
-  background: var(--gray-soft);
+  color: var(--red);
 }
 /* 「バースト」の4文字が、順位（1位 など）と同じ幅に収まるようにする */
 .rank-item.is-out .rank-place {
-  width: 4.1em;
+  font-family: var(--font-sans);
   font-size: 11px;
+  font-weight: 700;
   color: var(--red);
 }
 .rank-item.is-out .rank-name,
 .rank-item.is-out .rank-score b {
-  color: #8b8580;
+  color: var(--ink-3);
+}
+.rank-item.is-out .rank-score b {
+  text-decoration: line-through;
 }
 
+/* 各ターンのふりかえり（開け閉めできる欄） */
+.history {
+  padding: 0;
+  background: var(--paper-2);
+  border: none;
+}
 .history summary {
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+  list-style: none;
+}
+.history summary::-webkit-details-marker {
+  display: none;
+}
+.history summary::after {
+  content: "＋";
+  color: var(--ink-2);
+}
+.history[open] summary::after {
+  content: "－";
+}
+#result-history {
+  padding: 0 14px 16px;
 }
 .history-player {
   margin-top: 14px;
 }
+.history-player:first-child {
+  margin-top: 0;
+}
 .history-name {
   margin: 0 0 2px;
-  font-weight: 700;
+  font-family: var(--font-serif);
+  font-weight: 800;
 }
 .history-lines {
   margin: 0;
   padding: 0;
-  font-size: 14px;
+  font-size: 13px;
   list-style: none;
 }
 .history-lines li {
   display: flex;
   gap: 8px;
-  padding: 4px 0;
-  border-bottom: 1px dashed var(--line);
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
 }
 .history-turn {
   flex: none;
   width: 2em;
   font-weight: 700;
-  color: var(--gold);
+  color: var(--red);
 }
 .history-muted {
-  color: #a39b93;
+  color: var(--ink-3);
 }
 
 /* ---------- 8. 動き ---------- */
@@ -1512,10 +2017,10 @@ body[data-screen="game"] .toast {
 @keyframes card-in {
   from {
     opacity: 0;
-    transform: translateY(14px) scale(0.97);
+    transform: translateY(12px);
   }
 }
-/* ぴったり賞のカードを、光が左から右へ横切る */
+/* ぴったり賞の札を、光が左から右へ横切る */
 @keyframes shine {
   to {
     transform: translateX(100%);
@@ -1533,6 +2038,17 @@ body[data-screen="game"] .toast {
   100% {
     opacity: 1;
     transform: scale(1);
+  }
+}
+/* ハンコを押したように、大きいところから少し傾いた位置に落ちてくる */
+@keyframes stamp-in {
+  0% {
+    opacity: 0;
+    transform: rotate(-8deg) scale(1.8);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(-8deg) scale(1);
   }
 }
 

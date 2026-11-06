@@ -10,7 +10,7 @@
 // ---- ルールが決まってから、計算と画面に使われるまで ----
 //
 //   ゲームモードの設定（config.js の GAME_MODES）
-//        ↓  ホストがモードを選ぶ／オリジナルのルールを決める（withMode / withOriginalRules）
+//        ↓  ホストがモードを選ぶ／オリジナルの設定を選ぶ（withMode / withOriginalSettings）
 //   ゲームの状態（state.rules）   … ルームに1つだけ保存され、全員が同じものを見る
 //        ↓  rulesOf(state)
 //   計算（このファイル）と 画面（views.js）
@@ -29,14 +29,19 @@
 //     maxTurns: 5,             //   ターン数
 //     minRank: 1,              //   使えるキャラクターの順位（開始）
 //     maxRank: 50,             //   使えるキャラクターの順位（終了）。無ければ「最後の順位まで」
+//     ---- ここから下の3つは、オリジナル（持つ／持たない）のときだけ入る ----
+//     pickStyle: 'draw',       //   ランダムに出たキャラを「持つ／持たない」で遊ぶ
+//     drawStyle: 'random',     //   'random' … 人ごとに違うキャラ ／ 'shared' … 全員に同じキャラ
+//     hintBand: 50,            //   初心者のヒントで見える順位の範囲の幅（50 なら「51〜100位」のように出る）
 //   },
-//   original: { …rules と同じ形… },  // ホストが決めたオリジナルのルール（決めたときだけ入る）
+//   original: { base: 'hard', drawStyle: 'random' },  // ホストが選んだオリジナルの設定（選んだときだけ入る）
 //   turn: 1,                   // 現在のターン (1〜rules.maxTurns)
 //   phase: 'select' | 'reveal',// 選択中 / 結果公開中
 //   scores: {                  // 参加者ごとの点数。out は「バーストしたか」
 //     <uid>: { name: '霊夢', order: 0, total: 87, out: false }
 //   },
 //   banned:  { c3: 1 },        // 使用禁止キャラ（キー: 'c'+キャラid、値: 禁止になったターン）
+//   draws:   { t1: { <uid>: キャラid } },  // オリジナルで、各ターンにその人に出たキャラ
 //   history: { t1: { <uid>: {…ターン結果…} } }   // 各ターンの結果
 // }
 //
@@ -44,12 +49,28 @@
 //    お試しモード（backend-local.js）が見ているので、変えないでください。
 // ============================================================
 
-import { GAME_MODES, DEFAULT_MODE, ORIGINAL_LIMITS, MIN_PLAYERS, MAX_PLAYERS } from './config.js';
+import { GAME_MODES, DEFAULT_MODE, MIN_PLAYERS, MAX_PLAYERS } from './config.js';
 
 // ---- ルール ------------------------------------------------------------
 
-/** ルールの項目。この5つで、1つのゲームのルールが決まる（意味は config.js を参照） */
-export const RULE_KEYS = ['targetScore', 'burstScore', 'maxTurns', 'minRank', 'maxRank'];
+/**
+ * ルールの項目（意味は上の「ゲームの状態の形」と config.js を参照）。
+ * 最初の5つはどのモードにもあり、残りの3つはオリジナル（持つ／持たない）のときだけ入る。
+ */
+export const RULE_KEYS = [
+  'targetScore', 'burstScore', 'maxTurns', 'minRank', 'maxRank',
+  'pickStyle', 'drawStyle', 'hintBand',
+];
+
+/** キャラの出し方の種類（このファイルの drawTurn が、それぞれの出し方を知っている） */
+const DRAW_STYLE_IDS = ['random', 'shared'];
+
+/**
+ * オリジナルで送る「持つ／持たない」の値。
+ * 選択を送る場所（picks）は「数字なら書ける」決まりなので、数字で表す。
+ * （0 にしないのは、「まだ送っていない」と区別しやすくするため）
+ */
+export const DRAW_DECISION = { keep: 1, pass: -1 };
 
 /** 1以上の整数か */
 function isCount(value) {
@@ -67,19 +88,27 @@ function pickRules(source) {
 
 /**
  * ルールとして使える形か。
- * （数字が1以上の整数で、バーストする点数が目標値より大きく、順位の開始と終了が逆になっていない）
+ * （数字が1以上の整数で、バーストする点数が目標値より大きく、順位の開始と終了が逆になっていない。
+ *   オリジナルの項目があるときは、その中身も正しい）
  */
 export function isValidRules(rules) {
   if (!rules || typeof rules !== 'object') return false;
   const { targetScore, burstScore, maxTurns, minRank, maxRank } = rules;
-  return (
+  const numbersOk =
     isCount(targetScore) &&
     isCount(burstScore) &&
     burstScore > targetScore &&
     isCount(maxTurns) &&
     isCount(minRank) &&
-    (maxRank == null || (isCount(maxRank) && maxRank >= minRank))
-  );
+    (maxRank == null || (isCount(maxRank) && maxRank >= minRank));
+  if (!numbersOk) return false;
+  if (rules.pickStyle == null) return true;   // ハード・ノーマルの形
+  return rules.pickStyle === 'draw' && DRAW_STYLE_IDS.includes(rules.drawStyle) && isCount(rules.hintBand);
+}
+
+/** オリジナル（ランダムに出たキャラを持つ／持たない）のルールか */
+export function isDrawRules(rules) {
+  return rules?.pickStyle === 'draw';
 }
 
 // ---- ゲームモード ------------------------------------------------------
@@ -89,13 +118,13 @@ export function isModeAvailable(id) {
   return Boolean(GAME_MODES[id] && GAME_MODES[id].available);
 }
 
-/** モードの「画面に出す情報」を取り出す: { id, name, description, available, custom } */
+/** モードの「画面に出す情報」を取り出す: { id, name, description, available, draw } */
 function modeInfo(id) {
-  const { name, description, available, custom } = GAME_MODES[id];
-  return { id, name, description, available: Boolean(available), custom: Boolean(custom) };
+  const { name, description, available, draw } = GAME_MODES[id];
+  return { id, name, description, available: Boolean(available), draw: Boolean(draw) };
 }
 
-/** 画面に並べるモードの一覧（config.js に書いた順）: [{ id, name, description, available, custom }, …] */
+/** 画面に並べるモードの一覧（config.js に書いた順）: [{ id, name, description, available, draw }, …] */
 export function listModes() {
   return Object.keys(GAME_MODES).map(modeInfo);
 }
@@ -111,8 +140,10 @@ export function modeOf(state) {
 /**
  * そのモードの、config.js に書いてあるルール。
  * 返す値の例: { targetScore: 50, burstScore: 51, maxTurns: 5, minRank: 1, maxRank: 50 }
+ * オリジナルのときは、最初に選ばれている設定（ハードの数字・ランダムキャラクター）のルールを返す。
  */
 export function presetRules(id) {
+  if (GAME_MODES[id].draw) return drawRulesOf(id, defaultOriginalSettings(id));
   return pickRules(GAME_MODES[id]);
 }
 
@@ -126,24 +157,78 @@ export function rulesOf(state) {
 
 /**
  * 待機中にモードを選んだ状態を返す。選んだモードのルールが、状態（state.rules）に入る。
- * オリジナルを選んだときは、前にホストが決めたルールがあればそれを、なければ config.js の値を入れる。
+ * オリジナルを選んだときは、前にホストが選んだ設定があればそれを、なければ最初の設定を使う。
  * ゲーム開始後や、選べないモードのときは変えない（undefined を返す）。
  */
 export function withMode(state, id) {
   if (state.status !== 'lobby' || !isModeAvailable(id)) return undefined;
-  const useOriginal = GAME_MODES[id].custom && isValidRules(state.original);
-  return { ...state, mode: id, rules: useOriginal ? state.original : presetRules(id) };
+  const rules = GAME_MODES[id].draw ? drawRulesOf(id, originalSettingsOf(state, id)) : presetRules(id);
+  return { ...state, mode: id, rules };
+}
+
+// ---- オリジナルの設定（数字の借り先・キャラの出し方）--------------------
+// オリジナルは、ルールの数字を自分では持たず、ハードかノーマルの数字を借りる。
+// ホストが選んだ設定は state.original に { base: 'hard', drawStyle: 'random' } の形で覚える。
+
+/** 「持つ／持たない」で遊ぶモードの名前（config.js で draw: true のモード） */
+function drawModeId() {
+  return Object.keys(GAME_MODES).find((id) => GAME_MODES[id].draw);
+}
+
+/** そのモードの、最初に選ばれている設定 */
+function defaultOriginalSettings(modeId) {
+  const mode = GAME_MODES[modeId];
+  return { base: mode.bases[0], drawStyle: Object.keys(mode.drawStyles)[0] };
+}
+
+/** その設定が、そのモードで選べるものか（数字の借り先と、キャラの出し方が、どちらも知っている値か） */
+function isValidOriginalSettings(modeId, settings) {
+  const mode = GAME_MODES[modeId];
+  return Boolean(
+    mode?.draw &&
+      settings &&
+      mode.bases.includes(settings.base) &&
+      GAME_MODES[settings.base] &&
+      !GAME_MODES[settings.base].draw &&
+      DRAW_STYLE_IDS.includes(settings.drawStyle) &&
+      mode.drawStyles[settings.drawStyle]
+  );
 }
 
 /**
- * 待機中にオリジナルのルールを決めた状態を返す。
- * 変えられるのは、ルールを自分で決めるモード（オリジナル）が選ばれているときだけ。
- * ゲーム開始後や、ルールとして使えない値のときは変えない（undefined を返す）。
+ * ホストが選んでいるオリジナルの設定。例: { base: 'hard', drawStyle: 'random' }
+ * 選んでいない・前のバージョンの形（数字を入力していたころ）のときは、最初の設定を返す。
  */
-export function withOriginalRules(state, rules) {
-  if (state.status !== 'lobby' || !modeOf(state).custom || !isValidRules(rules)) return undefined;
-  const original = pickRules(rules);
-  return { ...state, rules: original, original };
+export function originalSettingsOf(state, modeId = drawModeId()) {
+  const saved = state?.original;
+  if (isValidOriginalSettings(modeId, saved)) return { base: saved.base, drawStyle: saved.drawStyle };
+  return defaultOriginalSettings(modeId);
+}
+
+/**
+ * 設定から、オリジナルのルールを作る。
+ * 例: ハードの数字・ランダム → { targetScore: 150, …ハードと同じ…, pickStyle: 'draw', drawStyle: 'random', hintBand: 50 }
+ */
+function drawRulesOf(modeId, settings) {
+  return {
+    ...pickRules(GAME_MODES[settings.base]),
+    pickStyle: 'draw',
+    drawStyle: settings.drawStyle,
+    hintBand: GAME_MODES[modeId].hintBand[settings.base],
+  };
+}
+
+/**
+ * 待機中に、ホストがオリジナルの設定を選んだ状態を返す。
+ * 変えられるのは、オリジナルが選ばれている待機中だけ。
+ * ゲーム開始後や、知らない値のときは変えない（undefined を返す）。
+ * @param {{ base: string, drawStyle: string }} settings
+ */
+export function withOriginalSettings(state, settings) {
+  const modeId = modeOf(state).id;
+  if (state.status !== 'lobby' || !isValidOriginalSettings(modeId, settings)) return undefined;
+  const original = { base: settings.base, drawStyle: settings.drawStyle };
+  return { ...state, original, rules: drawRulesOf(modeId, original) };
 }
 
 // ---- ルールによって変わる計算 ------------------------------------------
@@ -157,6 +242,7 @@ export function withOriginalRules(state, rules) {
 //   得点計算                 … pointsFor
 //   バーストする条件         … isBurst
 //   重複したときの扱い       … resolveTurn の「重複」の部分
+//   持つ／持たない           … drawTurn（キャラを出す）と resolveDrawTurn（結果の計算）
 //   勝敗判定                 … judgeResult
 //   ターン数                 … isLastReveal
 
@@ -192,8 +278,6 @@ export function isExactHit(rules, total) {
   return total === rules.targetScore;
 }
 
-// ---- オリジナルのルールのチェック --------------------------------------
-
 /**
  * キャラクターデータにある順位の範囲。例: { first: 1, last: 225 }
  * （人数や順位を 225 と決め打ちせず、データから求める。データを差し替えても、そのまま動く）
@@ -204,59 +288,15 @@ export function rankSpanOf(characters) {
 }
 
 /**
- * 最後のターンまで全員が選べるために必要な、キャラクターの人数。
- * 重複したキャラクターは使用禁止になるので、1ターンに最大「参加人数 ÷ 2」人ずつ減っていく。
- * それでも最後のターンに1人は残るだけの人数が必要。（5ターンなら 9人）
+ * 初心者のヒント：その順位が入っている「大まかな範囲」。例: 75位 → { from: 51, to: 100 }
+ * 範囲の幅は rules.hintBand（ハードの数字なら50位ごと、ノーマルの数字なら10位ごと）。
+ * 最後の範囲は、使えるキャラクターの最後の順位で切る（ハードなら「201〜225位」）。
  */
-export function neededCharacters(maxTurns) {
-  return (maxTurns - 1) * Math.floor(MAX_PLAYERS / 2) + 1;
-}
-
-/**
- * ホストが入力したオリジナルのルールに、問題がないか調べる。
- * @param {object} rules 入力された値（数字でない入力は NaN になっている）
- * @param {Array<{rank: number}>} characters キャラクターの配列
- * @returns {string[]} 問題の説明（そのまま画面に出せる文）。問題がなければ空の配列
- */
-export function findRuleProblems(rules, characters) {
-  const { targetScore, burstScore, maxTurns, minRank, maxRank } = rules;
-  const { first, last } = rankSpanOf(characters);
-  const inRange = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
-  const problems = [];
-
-  const targetOk = inRange(targetScore, 1, ORIGINAL_LIMITS.maxTargetScore);
-  if (!targetOk) {
-    problems.push(`目標値は 1〜${ORIGINAL_LIMITS.maxTargetScore} の整数で入力してください。`);
-  }
-
-  // 目標値とバーストする点数が矛盾しないこと（目標値ちょうどでバーストしてしまう設定は不可）
-  if (!inRange(burstScore, 2, ORIGINAL_LIMITS.maxBurstScore)) {
-    problems.push(`バーストする点数は 2〜${ORIGINAL_LIMITS.maxBurstScore} の整数で入力してください。`);
-  } else if (targetOk && burstScore <= targetScore) {
-    problems.push(`バーストする点数は、目標値より大きくしてください（${targetScore + 1} 以上）。`);
-  }
-
-  const turnsOk = inRange(maxTurns, 1, ORIGINAL_LIMITS.maxTurns);
-  if (!turnsOk) {
-    problems.push(`ターン数は 1〜${ORIGINAL_LIMITS.maxTurns} の整数で入力してください。`);
-  }
-
-  if (!inRange(minRank, first, last) || !inRange(maxRank, first, last)) {
-    problems.push(`順位は ${first}〜${last} の整数で入力してください。`);
-  } else if (minRank > maxRank) {
-    problems.push('順位は、開始が終了より大きくならないようにしてください。');
-  } else if (turnsOk) {
-    // 同率順位があるので、人数は「終了 − 開始 + 1」とは限らない。実際に数える
-    const count = listUsableCharacters(rules, characters).length;
-    const needed = neededCharacters(maxTurns);
-    if (count < needed) {
-      problems.push(
-        `この範囲のキャラクターは ${count} 人です。${maxTurns} ターン遊ぶには ${needed} 人以上必要なので、順位の範囲を広げてください。`
-      );
-    }
-  }
-
-  return problems;
+export function hintRangeOf(rules, rank, characters) {
+  const band = rules.hintBand;
+  const from = rules.minRank + Math.floor((rank - rules.minRank) / band) * band;
+  const last = rules.maxRank ?? rankSpanOf(characters).last;
+  return { from, to: Math.min(from + band - 1, last) };
 }
 
 // ---- 状態を作る -------------------------------------------------------
@@ -276,21 +316,27 @@ const OLD_SCREEN_STOPPER = { difficulty: 'reload' };
  * ゲーム開始前（待機中）の状態を作る。選ばれているモードと、そのルールが入る。
  * @param {number} gameNo このルームで、これまでに遊んだゲームの数
  * @param {string} modeId 選ばれているモードの名前（選べないモードなら、既定のモードになる）
- * @param {object} [original] ホストが前に決めたオリジナルのルール（あれば覚えておく）
+ * @param {object} [original] ホストが前に選んだオリジナルの設定（あれば覚えておく）
  */
 export function createLobbyState(gameNo = 0, modeId = DEFAULT_MODE, original = undefined) {
   const state = { ...OLD_SCREEN_STOPPER, status: 'lobby', gameNo };
-  if (isValidRules(original)) state.original = pickRules(original);
+  // 前のバージョンの形（数字を入力していたころのルール）は覚えない
+  if (isValidOriginalSettings(drawModeId(), original)) {
+    state.original = { base: original.base, drawStyle: original.drawStyle };
+  }
   return withMode(state, isModeAvailable(modeId) ? modeId : DEFAULT_MODE);
 }
 
 /**
  * ゲーム開始時の状態を作る。モードとルールはここで決まり、ゲームが終わるまで変わらない。
+ * オリジナルのときは、1ターン目に出るキャラもここで決まる。
  * @param {Array<{uid: string, name: string}>} participants 参加者（表示したい順）
  * @param {number} gameNo このルームで何回目のゲームか
  * @param {object} lobby 待機中の状態。選ばれているモードとルールを引き継ぐ（省くと既定のモード）
+ * @param {Array} [characters] キャラクターの配列（オリジナルでキャラを出すのに使う）
+ * @param {() => number} [random] 0以上1未満の数を返す乱数（テストでは決まった数を返すものを渡す）
  */
-export function createGameState(participants, gameNo, lobby = createLobbyState()) {
+export function createGameState(participants, gameNo, lobby = createLobbyState(), characters = [], random = secureRandom) {
   const mode = modeOf(lobby);
   if (!mode.available) {
     throw new Error('このモードはまだ遊べません');
@@ -315,7 +361,14 @@ export function createGameState(participants, gameNo, lobby = createLobbyState()
     phase: 'select',
     scores,
   };
-  if (isValidRules(lobby.original)) state.original = lobby.original;
+  if (mode.draw) {
+    // 「もう一度」で待機画面に戻ったとき、同じ設定が選ばれているように覚えておく
+    state.original = originalSettingsOf(lobby, mode.id);
+    if (characters.length === 0) {
+      throw new Error('キャラクターデータがないため、オリジナルを開始できません');
+    }
+    return drawTurn(state, characters, random);
+  }
   return state;
 }
 
@@ -324,7 +377,8 @@ export function createGameState(participants, gameNo, lobby = createLobbyState()
  *   'ok'     … 扱える
  *   'reload' … この画面が知らないモードやルールの項目が入っている
  *              （ゲームが更新されたのに、古い画面のまま開いている）
- *   'broken' … ルールが入っていない（もっと前のバージョンの画面から始められたゲーム）
+ *   'broken' … ルールが入っていない、またはモードとルールが合っていない
+ *              （前のバージョンの画面から始められたゲーム。たとえば「数字を入力する」オリジナル）
  * 待機中は、モードを選び直せばよいので、いつも 'ok'。
  */
 export function compatibilityOf(state) {
@@ -332,6 +386,8 @@ export function compatibilityOf(state) {
   if (!state.rules) return 'broken';
   const knowsAllKeys = Object.keys(state.rules).every((key) => RULE_KEYS.includes(key));
   if (!GAME_MODES[state.mode] || !knowsAllKeys) return 'reload';
+  // 「持つ／持たない」のモードなのに、そのルールになっていない（またはその逆）
+  if (Boolean(GAME_MODES[state.mode].draw) !== isDrawRules(state.rules)) return 'broken';
   return isValidRules(state.rules) ? 'ok' : 'broken';
 }
 
@@ -382,17 +438,75 @@ export function allActiveSubmitted(state, submitted = {}) {
   return active.length > 0 && active.every((uid) => submitted[uid] === true);
 }
 
+// ---- オリジナル：キャラを出す ------------------------------------------
+
+/**
+ * 0以上1未満の乱数。ブラウザに備わっている、予測しにくい乱数（crypto）を使う。
+ * （Math.random でも遊べるが、こちらの方が偏りや予測の心配が少ない）
+ */
+function secureRandom() {
+  return crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
+}
+
+/** 候補の中から1人を選ぶ */
+function pickOne(list, random) {
+  return list[Math.floor(random() * list.length)];
+}
+
+/**
+ * そのターンに出るキャラを決めて、状態（state.draws）に書いた新しい状態を返す。
+ * ターンが始まる瞬間（ゲーム開始・「次のターンへ」）に1回だけ呼ばれる。
+ * 決めたキャラはルームのデータに残るので、再読み込みしても引き直しにはならない。
+ *
+ *   ランダムキャラクター（random）… バーストしていない人ごとに別々に選ぶ。その人に一度出たキャラは出さない
+ *   固定キャラクター（shared）   … 1人だけ選び、バーストしていない全員に同じキャラを出す。このゲームで一度出たキャラは出さない
+ *
+ * 選ぶのは、そのルールで使えるキャラクター（ノーマルの数字なら1〜50位）の中から。
+ * オリジナル以外のルールのときは、何も変えずにそのまま返す。
+ */
+export function drawTurn(state, characters, random = secureRandom) {
+  const rules = rulesOf(state);
+  if (!isDrawRules(rules)) return state;
+
+  const usable = listUsableCharacters(rules, characters);
+  const pastDraws = Object.values(state.draws || {});   // これまでのターンに出たキャラ: [{ <uid>: キャラid }, …]
+  // 一度出たキャラを除いた候補。万一（範囲が狭すぎて）だれもいなくなったら、全員を候補に戻す
+  const candidates = (excluded) => {
+    const rest = usable.filter((character) => !excluded.has(character.id));
+    return rest.length > 0 ? rest : usable;
+  };
+
+  const draws = {};
+  if (rules.drawStyle === 'shared') {
+    const shown = new Set(pastDraws.flatMap((turnDraws) => Object.values(turnDraws)));
+    const character = pickOne(candidates(shown), random);
+    for (const uid of activeUids(state)) draws[uid] = character.id;
+  } else {
+    for (const uid of activeUids(state)) {
+      const shown = new Set(pastDraws.map((turnDraws) => turnDraws[uid]).filter((id) => id != null));
+      draws[uid] = pickOne(candidates(shown), random).id;
+    }
+  }
+  return { ...state, draws: { ...(state.draws || {}), [turnKey(state.turn)]: draws } };
+}
+
+/** このターンに、その人に出たキャラのid（出ていなければ null） */
+export function drawnCharIdOf(state, uid) {
+  return state.draws?.[turnKey(state.turn)]?.[uid] ?? null;
+}
+
 /**
  * ★ゲームの中心となる計算★
  * 1ターン分の選択を受け取り、重複判定・加点・バースト判定を行う。
  *
  * @param {object} state  現在の状態（phase が 'select' のもの）
- * @param {object} picks  { <uid>: キャラid } 全員の選択
+ * @param {object} picks  { <uid>: キャラid } 全員の選択（オリジナルでは { <uid>: 持つ 1 ／ 持たない -1 }）
  * @param {Map<number, {id:number, rank:number, name:string}>} charById キャラid → キャラクター
  * @returns {object} 結果を反映した新しい状態（phase は 'reveal'）
  */
 export function resolveTurn(state, picks, charById) {
   const rules = rulesOf(state);   // このゲームのルール
+  if (isDrawRules(rules)) return resolveDrawTurn(state, picks, charById);
   const banned = { ...(state.banned || {}) };
 
   // --- 1) バーストしていない人の「有効な選択」を集める ---------------
@@ -459,6 +573,51 @@ export function resolveTurn(state, picks, charById) {
   };
 }
 
+/**
+ * オリジナル（持つ／持たない）の1ターン分の計算。resolveTurn から呼ばれる。
+ *   持つ     → 出たキャラの順位を加点（outcome: 'ok'）
+ *   持たない → +0（outcome: 'pass'）
+ *   決めなかった（ホストが締め切った）→ +0（outcome: 'none'）
+ * 「同じキャラを持った人が2人以上なら +0」と使用禁止は、オリジナルでは行わない。
+ * どの場合も、公開のときに見せるため、出たキャラのidを結果に残す。
+ */
+function resolveDrawTurn(state, picks, charById) {
+  const rules = rulesOf(state);
+  const results = {};
+  const scores = {};
+  for (const [uid, score] of Object.entries(state.scores)) {
+    if (score.out) {            // すでにバーストした人は何も変わらない
+      scores[uid] = { ...score };
+      continue;
+    }
+
+    const character = charById.get(drawnCharIdOf(state, uid));
+    let outcome;
+    let gained = 0;
+    if (picks[uid] === DRAW_DECISION.keep && character) {
+      outcome = 'ok';
+      gained = pointsFor(rules, character);
+    } else if (picks[uid] === DRAW_DECISION.pass) {
+      outcome = 'pass';
+    } else {
+      outcome = 'none';
+    }
+
+    const before = score.total;
+    const after = before + gained;
+    const out = isBurst(rules, after);
+    results[uid] = { charId: character ? character.id : 0, outcome, gained, before, after, out };
+    scores[uid] = { ...score, total: after, out };
+  }
+
+  return {
+    ...state,
+    phase: 'reveal',
+    scores,
+    history: { ...(state.history || {}), [turnKey(state.turn)]: results },
+  };
+}
+
 /** このターンの結果公開が終わったら、ゲームは終了か？（最後のターンか、全員がバーストしたとき） */
 export function isLastReveal(state) {
   const everyoneOut = activeUids(state).length === 0;
@@ -467,12 +626,20 @@ export function isLastReveal(state) {
 
 /**
  * 結果公開のあと、次のターン（または最終結果）へ進めた状態を返す。
+ * オリジナルのときは、次のターンに出るキャラもここで決まる。
+ * @param {Array} [characters] キャラクターの配列（オリジナルでキャラを出すのに使う）
+ * @param {() => number} [random] 0以上1未満の数を返す乱数
  */
-export function advance(state) {
+export function advance(state, characters = [], random = secureRandom) {
   if (isLastReveal(state)) {
     return { ...state, status: 'finished' };
   }
-  return { ...state, turn: state.turn + 1, phase: 'select' };
+  const next = { ...state, turn: state.turn + 1, phase: 'select' };
+  if (!isDrawRules(rulesOf(state))) return next;
+  if (characters.length === 0) {
+    throw new Error('キャラクターデータがないため、次のキャラを出せません');
+  }
+  return drawTurn(next, characters, random);
 }
 
 /**
@@ -499,7 +666,7 @@ export function judgeResult(state) {
     total: player.total,
     out: player.out,
     // 「どれだけ近いか」なので、差は0以上の数にする。
-    // （オリジナルでバーストする点数を目標値より2以上大きくすると、目標値を少し超えた人も残る）
+    // （バーストする点数を目標値より2以上大きくしたルールでは、目標値を少し超えた人も残る）
     diff: player.out ? null : Math.abs(targetScore - player.total),
     exact: !player.out && isExactHit(rules, player.total),
   }));

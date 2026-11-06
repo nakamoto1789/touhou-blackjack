@@ -3,12 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#7d1a22">
+  <meta name="theme-color" content="#f2ece1">
   <meta name="format-detection" content="telephone=no">
   <title>東方人気投票ブラックジャック（非公式ファンゲーム）</title>
   <meta name="description" content="第22回東方Project人気投票の順位を点数にして、目標の点数を超えずにぴったりを目指す、2〜5人用の非公式ファンゲームです。">
   <!-- タブに出る小さなアイコン（下の陰陽玉マークと同じ図形を、画像ファイルなしで指定している） -->
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='47' fill='%23fff' stroke='%237d1a22' stroke-width='5'/%3E%3Cpath d='M50 3A47 47 0 0 1 50 97A23.5 23.5 0 0 0 50 50A23.5 23.5 0 0 1 50 3Z' fill='%23b3202a'/%3E%3Ccircle cx='50' cy='26.5' r='7' fill='%23fff'/%3E%3Ccircle cx='50' cy='73.5' r='7' fill='%23b3202a'/%3E%3C/svg%3E">
+  <!--
+    文字の形（Webフォント）。見出しと数字は明朝体、本文はゴシック体。
+    通信できないときは、端末にある明朝体・ゴシック体で表示される（style.css の --font-serif / --font-sans）
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
@@ -40,23 +47,32 @@
     <!-- ========== 1. トップ画面 ========== -->
     <section id="screen-top" class="screen">
       <header class="hero">
-        <!-- 陰陽玉のマーク（画像ファイルを使わず、図形として描いている） -->
-        <svg class="yinyang" viewBox="0 0 100 100" aria-hidden="true">
-          <circle cx="50" cy="50" r="47" fill="#fff" stroke="#7d1a22" stroke-width="5"/>
-          <path d="M50 3A47 47 0 0 1 50 97A23.5 23.5 0 0 0 50 50A23.5 23.5 0 0 1 50 3Z" fill="#b3202a"/>
-          <circle cx="50" cy="26.5" r="7" fill="#fff"/>
-          <circle cx="50" cy="73.5" r="7" fill="#b3202a"/>
-        </svg>
-        <p class="hero-sub">第22回東方Project人気投票</p>
-        <h1 class="hero-title">東方人気投票<br>ブラックジャック</h1>
-        <p class="hero-lead">順位がそのまま点数になる。<br><strong>目標の点数</strong>を超えずに、<strong>ぴったり</strong>を目指せ。</p>
+        <div class="hero-eyebrow">
+          <p class="hero-sub">第22回東方Project人気投票</p>
+          <p class="hero-unofficial">非公式ファンゲーム</p>
+        </div>
+
+        <!-- タイトルと、右側の朱色の帯（帯の文字は style.css の writing-mode で縦書きにしている） -->
+        <div class="hero-main">
+          <h1 class="hero-title">東方<br>人気投票<br>ブラック<br>ジャック</h1>
+          <p class="hero-band" aria-hidden="true">順位が点数になる</p>
+        </div>
+
+        <!-- 飾りのかるた札（順位は「？？位」と伏せてある。ゲームの中身とは関係ない） -->
+        <div class="hero-deck" aria-hidden="true">
+          <div class="karuta"><span class="karuta-rank">？？位</span><span class="karuta-name">古明地こいし</span><span class="karuta-yomi">こめいじ こいし</span></div>
+          <div class="karuta"><span class="karuta-rank">？？位</span><span class="karuta-name">博麗霊夢</span><span class="karuta-yomi">はくれい れいむ</span></div>
+          <div class="karuta"><span class="karuta-rank">？？位</span><span class="karuta-name">魂魄妖夢</span><span class="karuta-yomi">こんぱく ようむ</span></div>
+        </div>
+
+        <p class="hero-lead">順位が、そのまま点数になる。<br><strong>目標</strong>を超えずに、<strong>ぴったり</strong>を狙え。</p>
         <!-- 遊べるゲームモード（js/config.js の設定から、views.js の renderTop が入れる） -->
         <p id="hero-modes" class="hero-modes"></p>
       </header>
 
       <div class="stack">
-        <button id="btn-top-create" class="btn btn-primary" type="button">ルームを作成</button>
-        <button id="btn-top-join" class="btn btn-secondary" type="button">ルームに参加</button>
+        <button id="btn-top-create" class="btn btn-ink btn-arrow" type="button">ルームを作成</button>
+        <button id="btn-top-join" class="btn btn-secondary btn-arrow" type="button">ルームに参加</button>
         <button class="btn btn-ghost" type="button" data-action="rules">遊び方を見る</button>
       </div>
 
@@ -107,66 +123,54 @@
     <section id="screen-lobby" class="screen">
       <h2 class="screen-title">プレイヤーを待っています</h2>
 
-      <div class="card room-card">
-        <p class="room-label">ルームID</p>
-        <p id="lobby-room-id" class="room-id">-----</p>
-        <div class="row">
-          <button id="btn-copy-id" class="btn btn-small" type="button">IDをコピー</button>
-          <button id="btn-share" class="btn btn-small" type="button">招待リンクを送る</button>
+      <div class="room-card">
+        <div class="section-head">
+          <p class="room-label">ルームID</p>
+          <p class="room-note">いっしょに遊ぶ人に伝えてください</p>
         </div>
-        <!-- 近くにいる人は、この画面のQRコードをスマホのカメラで読み取って参加できる -->
-        <button id="btn-qr" class="btn btn-small btn-qr" type="button">QRコードを表示</button>
+        <!-- 1文字ずつの札に分けて表示する（中身は views.js の renderLobby が入れる） -->
+        <p id="lobby-room-id" class="room-id">-----</p>
+        <!-- 近くにいる人は、QRコードをスマホのカメラで読み取って参加できる -->
+        <div class="row room-actions">
+          <button id="btn-copy-id" class="btn btn-small" type="button">IDをコピー</button>
+          <button id="btn-share" class="btn btn-small" type="button">招待リンク</button>
+          <button id="btn-qr" class="btn btn-small" type="button">QRコード</button>
+        </div>
       </div>
 
-      <div class="card">
-        <h3 class="card-title">参加者 <span id="lobby-count" class="count"></span></h3>
+      <div class="section">
+        <h3 class="section-title">参加者 <span id="lobby-count" class="count"></span></h3>
         <ul id="lobby-players" class="player-list"></ul>
       </div>
 
       <!-- ゲームモードの選択（選べるのはホストだけ。全員に同じ内容が表示される） -->
-      <div class="card">
-        <h3 id="lobby-mode-title" class="card-title">ゲームモードを選択</h3>
+      <div class="section">
+        <h3 id="lobby-mode-title" class="section-title">ゲームモードを選択</h3>
         <ul id="lobby-modes" class="mode-list"></ul>
 
-        <!-- 選ばれているモードのルール（ホストがオリジナルを選んでいるあいだは、下の設定欄に替わる） -->
+        <!--
+          オリジナルの設定（オリジナルが選ばれているときだけ表示）。
+          選べるのはホストだけ。ほかの人には同じ内容が「見るだけ」で表示される。
+          中のボタンは views.js の renderModeCard が config.js の設定から作る。
+        -->
+        <div id="original-options" class="original-options" hidden>
+          <p class="option-title">数字</p>
+          <ul id="original-bases" class="mode-list option-list"></ul>
+          <p class="option-title">キャラの出し方</p>
+          <ul id="original-draw-styles" class="mode-list option-list"></ul>
+        </div>
+
+        <!-- 選ばれているモードのルール -->
         <div id="lobby-rules" class="rules-box"></div>
 
-        <!-- オリジナルのルール設定（ホストにだけ表示。決めた内容は、ほかの人の「ルール」の欄に表示される） -->
-        <div id="original-form" class="original-form" hidden>
-          <h4 class="original-title">オリジナルルール設定</h4>
-          <label class="original-field">
-            <span class="original-label">目標値</span>
-            <input id="input-original-target" class="input input-number" type="text"
-                   inputmode="numeric" autocomplete="off" maxlength="6">
-            <span class="original-unit">点</span>
-          </label>
-          <label class="original-field">
-            <span class="original-label">バースト</span>
-            <input id="input-original-burst" class="input input-number" type="text"
-                   inputmode="numeric" autocomplete="off" maxlength="6">
-            <span class="original-unit">点以上</span>
-          </label>
-          <label class="original-field">
-            <span class="original-label">ターン数</span>
-            <input id="input-original-turns" class="input input-number" type="text"
-                   inputmode="numeric" autocomplete="off" maxlength="6">
-            <span class="original-unit">ターン</span>
-          </label>
-          <div class="original-field">
-            <span class="original-label">使用可能キャラクター（人気投票の順位）</span>
-          </div>
-          <div class="original-range">
-            <input id="input-original-min-rank" class="input input-number" type="text"
-                   inputmode="numeric" autocomplete="off" maxlength="6" aria-label="使えるキャラクターの順位（開始）">
-            <span>位 〜</span>
-            <input id="input-original-max-rank" class="input input-number" type="text"
-                   inputmode="numeric" autocomplete="off" maxlength="6" aria-label="使えるキャラクターの順位（終了）">
-            <span>位</span>
-          </div>
-          <p id="original-count" class="original-count"></p>
-          <p id="error-original" class="form-error" role="alert" hidden></p>
-          <p class="original-hint">目標値を変えると、バーストは自動で「目標値＋1」になります（あとから変えられます）。</p>
-        </div>
+        <!-- 初心者のヒント（オリジナルのときだけ表示。一人ひとりが自分で選び、自分の画面にだけ効く） -->
+        <label id="hint-row" class="hint-toggle" hidden>
+          <input id="input-hint" type="checkbox">
+          <span class="hint-toggle-text">
+            <b>初心者（ヒントを表示）</b>
+            <small>出たキャラの順位の、大まかな範囲が見えます。あなたの画面にだけ出ます。</small>
+          </span>
+        </label>
 
         <p id="lobby-mode-note" class="mode-note"></p>
       </div>
@@ -207,6 +211,21 @@
         </div>
       </div>
 
+      <!-- A'. オリジナルで、まだ決めていないとき：出たキャラを「持つ」か「持たない」か（順位は表示しない） -->
+      <div id="game-draw" class="draw" hidden>
+        <p id="draw-progress" class="picker-hint"></p>
+        <div class="card draw-card">
+          <p id="draw-label" class="draw-label"></p>
+          <p id="draw-name" class="draw-name"></p>
+          <p id="draw-hint" class="draw-hint" hidden></p>
+          <p class="draw-note">順位は、全員が決めると公開されます</p>
+        </div>
+        <div class="draw-buttons">
+          <button id="btn-keep" class="btn btn-primary" type="button">持つ<small>順位を加点</small></button>
+          <button id="btn-pass" class="btn btn-secondary" type="button">持たない<small>このターンは +0</small></button>
+        </div>
+      </div>
+
       <!-- B. 決定したあと・バーストしたとき：ほかの人を待つ -->
       <div id="game-waiting" class="waiting" hidden>
         <div id="waiting-mine" class="card waiting-mine"></div>
@@ -235,8 +254,11 @@
 
     <!-- ========== 7. 最終結果画面 ========== -->
     <section id="screen-result" class="screen">
-      <h2 class="result-heading">GAME RESULT</h2>
-      <p id="result-mode" class="result-mode"></p>
+      <div class="result-head">
+        <p class="result-eyebrow">GAME RESULT</p>
+        <h2 class="result-heading">結果発表</h2>
+        <p id="result-mode" class="result-mode"></p>
+      </div>
       <div id="result-winner" class="winner-card"></div>
       <ol id="result-ranking" class="ranking"></ol>
 
@@ -297,19 +319,28 @@
     ・モードごとの説明（#rules-modes）は、ルールの設定から views.js の renderRules が文章を作って入れる
     ・data-rule がついた部分も、そのゲームのルールに合わせて renderRules が入れ直す
       （ルームに入っていないときは、ここに書いてある「目標値」などの言葉のまま表示される）
+    ・data-flow="choose" はハード・ノーマル（キャラを選ぶ）、data-flow="draw" はオリジナル（持つ／持たない）の説明。
+      オリジナルのルームでは draw の方、それ以外では choose の方を renderRules が表示する
   -->
   <dialog id="dialog-rules" class="dialog">
     <h3 class="dialog-title">遊び方<span id="rules-mode" class="rules-mode"></span></h3>
     <div id="rules-modes" class="rules-modes"></div>
     <h4 class="rules-heading">ゲームの流れ</h4>
     <ol class="rules">
-      <li>毎ターン、東方キャラクターを<strong>1人</strong>選びます。</li>
-      <li>そのキャラの<strong>人気投票の順位</strong>が、そのまま点数に加算されます。<br>
+      <li data-flow="choose">毎ターン、東方キャラクターを<strong>1人</strong>選びます。</li>
+      <li data-flow="choose">そのキャラの<strong>人気投票の順位</strong>が、そのまま点数に加算されます。<br>
         <span class="rules-example">例：10位のキャラクターを選ぶと <b>+10</b></span></li>
-      <li>選ぶときには、順位は<strong>表示されません</strong>。<br>
+      <li data-flow="choose">選ぶときには、順位は<strong>表示されません</strong>。<br>
         全員が決定すると、選択と順位が<strong>一斉に公開</strong>されます。</li>
-      <li>同じターンに同じキャラを選んだ人が2人以上いたら、その全員が <b>+0</b>。<br>
+      <li data-flow="choose">同じターンに同じキャラを選んだ人が2人以上いたら、その全員が <b>+0</b>。<br>
         そのキャラは以降<strong>だれも選べなくなります</strong>。</li>
+      <li data-flow="draw" hidden>毎ターン、東方キャラクターが<strong>1人</strong>出ます。<br>
+        <span class="rules-example">人ごとに違うキャラが出る「ランダム」と、全員に同じキャラが出る「固定」があります。</span></li>
+      <li data-flow="draw" hidden>名前だけを見て<strong>「持つ」か「持たない」</strong>かを決めます。<br>
+        持つと、そのキャラの<strong>人気投票の順位</strong>が点数に加算されます。持たないと、そのターンは <b>+0</b> です。<br>
+        <span class="rules-example">例：10位のキャラクターを持つと <b>+10</b></span></li>
+      <li data-flow="draw" hidden>順位は、全員が決めると<strong>一斉に公開</strong>されます。<br>
+        「初心者（ヒントを表示）」にチェックすると、出たキャラの順位の大まかな範囲が見えます。</li>
       <li>合計が<b data-rule="burst">バーストする点数</b>以上になると<b class="text-out">バースト</b>。<span data-rule="target">目標値</span>ちょうどはセーフです。<br>
         バーストした人は、以降のターンを観戦します。</li>
       <li><strong data-rule="turns">最後のターン</strong>が終わったとき、バーストしていない人のうち、<span data-rule="target">目標値</span>に最も近い人が勝ち。<br>

@@ -23,13 +23,15 @@ import {
   GAME_MODES,
 } from './config.js';
 import {
+  DRAW_DECISION,
   createLobbyState,
   createGameState,
   isModeAvailable,
   withMode,
-  withOriginalRules,
-  findRuleProblems,
+  withOriginalSettings,
   rulesOf,
+  isDrawRules,
+  drawnCharIdOf,
   isCharacterUsable,
   roundKeyOf,
   isBanned,
@@ -200,12 +202,6 @@ function assertHost(room) {
   }
 }
 
-/** オリジナルのルールに問題があれば、その説明を GameError として知らせる */
-function assertRulesOk(rules, characters) {
-  const problems = findRuleProblems(rules, characters);
-  if (problems.length > 0) throw new GameError(problems[0]);
-}
-
 /**
  * ゲームモードを選ぶ（ホストの操作）。
  * 選んだモードとそのルールはルームのデータに保存されるので、全員の画面に同じものが表示される。
@@ -221,38 +217,32 @@ export async function setMode(roomId, room, modeId) {
 }
 
 /**
- * オリジナルのルールを決める（ホストの操作）。
- * 決めたルールはルームのデータに保存されるので、参加者の待機画面にも同じ内容が表示される。
- * 入力に問題があるときは、保存せずに GameError で知らせる。
- * @param {object} rules { targetScore, burstScore, maxTurns, minRank, maxRank }
- * @param {Array} characters キャラクターの配列（順位の範囲と人数のチェックに使う）
+ * オリジナルの設定を選ぶ（ホストの操作）。
+ * 選んだ設定はルームのデータに保存されるので、参加者の待機画面にも同じ内容が表示される。
+ * @param {{ base: string, drawStyle: string }} settings
+ *   base      … 数字を借りるモード（'hard' / 'normal'）
+ *   drawStyle … キャラの出し方（'random' / 'shared'）
  */
-export async function setOriginalRules(roomId, room, rules, characters) {
+export async function setOriginalSettings(roomId, room, settings) {
   assertHost(room);
-  assertRulesOk(rules, characters);
-  return backend.updateState(roomId, (state) => withOriginalRules(state, rules));
+  return backend.updateState(roomId, (state) => withOriginalSettings(state, settings));
 }
 
 /**
  * ゲームを開始する（ホストの操作）。そのとき選ばれているモードとルールで始まる。
- *
- * オリジナルのときは、ホストの入力欄にあるルール（originalRules）を受け取り、
- * それを保存してから開始する。入力した直後に「ゲーム開始」を押しても、
- * 必ず画面に出ているとおりのルールで始まるようにするため。
+ * オリジナルのときは、1ターン目に出るキャラもこのとき決まる（キャラクターの配列が必要）。
  */
-export async function startGame(roomId, room, originalRules = null, characters = []) {
+export async function startGame(roomId, room, characters) {
   assertHost(room);
   const participants = startCandidates(room);
   if (participants.length < MIN_PLAYERS) {
     throw new GameError(`${MIN_PLAYERS}人以上そろってから開始してください。`);
   }
-  if (originalRules) assertRulesOk(originalRules, characters);
 
   await backend.updateState(roomId, (state) => {
     if (state.status !== 'lobby') return undefined;   // すでに開始済み
-    const lobby = (originalRules && withOriginalRules(state, originalRules)) || state;
     // モードやルールの記録がない古いルームなら、既定のモード（ハード）で始まる
-    return createGameState(participants, (state.gameNo || 0) + 1, lobby);
+    return createGameState(participants, (state.gameNo || 0) + 1, state, characters);
   });
 }
 
@@ -262,14 +252,9 @@ export async function startGame(roomId, room, originalRules = null, characters =
  */
 export async function submitPick(roomId, room, charId, charById) {
   const state = room.state;
-  const me = state.scores?.[myUid];
   const roundKey = roundKeyOf(state);
 
-  if (state.status !== 'playing' || state.phase !== 'select') {
-    throw new GameError('いまは選択できません。');
-  }
-  if (!me) throw new GameError('このゲームには参加していません。');
-  if (me.out) throw new GameError('バーストしたため、選択できません。');
+  assertCanDecide(room);
   if (!charById.has(charId)) throw new GameError('キャラクターを選択してください。');
   if (!isCharacterUsable(rulesOf(state), charById.get(charId))) {
     throw new GameError('このキャラクターは、このゲームのルールでは選べません。');
@@ -277,11 +262,35 @@ export async function submitPick(roomId, room, charId, charById) {
   if (isBanned(state, charId)) {
     throw new GameError('このキャラクターは重複したため、使用禁止です。');
   }
-  if (room.submitted?.[roundKey]?.[myUid]) {
+  await backend.submitPick(roomId, roundKey, charId);
+}
+
+/** いま自分が選択（または「持つ／持たない」）を送れるか。送れなければ GameError */
+function assertCanDecide(room) {
+  const state = room.state;
+  const me = state.scores?.[myUid];
+  if (state.status !== 'playing' || state.phase !== 'select') {
+    throw new GameError('いまは選択できません。');
+  }
+  if (!me) throw new GameError('このゲームには参加していません。');
+  if (me.out) throw new GameError('バーストしたため、選択できません。');
+  if (room.submitted?.[roundKeyOf(state)]?.[myUid]) {
     throw new GameError('このターンはすでに決定済みです。');
   }
+}
 
-  await backend.submitPick(roomId, roundKey, charId);
+/**
+ * オリジナル：出たキャラを「持つ」か「持たない」かを決定する。送ったあとは変更できない。
+ * 送るのは「持つ（1）／持たない（-1）」だけ。どのキャラが出たかは、ルームのデータで決まっている。
+ * （キャラのidを送らないので、出ていないキャラを送り込むことはできない）
+ * @param {boolean} keep 持つなら true
+ */
+export async function submitDrawDecision(roomId, room, keep) {
+  const state = room.state;
+  if (!isDrawRules(rulesOf(state))) throw new GameError('このモードでは使えない操作です。');
+  assertCanDecide(room);
+  if (drawnCharIdOf(state, myUid) == null) throw new GameError('キャラクターがまだ出ていません。');
+  await backend.submitPick(roomId, roundKeyOf(state), keep ? DRAW_DECISION.keep : DRAW_DECISION.pass);
 }
 
 /**
@@ -304,14 +313,18 @@ export async function resolveTurn(roomId, room, charById) {
   });
 }
 
-/** 結果公開のあと、次のターン（または最終結果）へ進む（ホストの操作） */
-export async function goNext(roomId, room) {
+/**
+ * 結果公開のあと、次のターン（または最終結果）へ進む（ホストの操作）。
+ * オリジナルのときは、次のターンに出るキャラもこのとき決まる（キャラクターの配列が必要）。
+ * 2人が同時に押しても、状態の書き換え（トランザクション）は1回だけ反映されるので、キャラが2回出ることはない。
+ */
+export async function goNext(roomId, room, characters) {
   const roundKey = roundKeyOf(room.state);
   return backend.updateState(roomId, (state) => {
     const stillRevealing =
       state.status === 'playing' && state.phase === 'reveal' && roundKeyOf(state) === roundKey;
     if (!stillRevealing) return undefined;
-    return advance(state);
+    return advance(state, characters);
   });
 }
 

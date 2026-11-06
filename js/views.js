@@ -13,23 +13,31 @@
 //   app.charById       キャラid → キャラクター
 //   app.selectedCharId 一覧でタップして選んでいるキャラ（決定前）
 //   app.myPick         自分が決定した選択 { roundKey, charId }
+//                      （オリジナルでは charId のところに「持つ 1 ／ 持たない -1」が入る）
+//   app.showHint       初心者のヒントを表示するか（この端末だけの設定）
 //
 // ★順位とポイントを表示してよいのは「結果が公開された後」だけ★
 //   キャラクターを選ぶ画面（一覧・検索結果・確認欄・決定後の表示）には、
 //   順位もポイントも出しません。「選ぶと何点になるか」を隠すのがこのゲームの決まりです。
 //   表示するのは、ターン結果画面（renderRevealCards）と最終結果画面（renderResult）だけです。
+//   オリジナルの「初心者のヒント」は例外で、順位そのものではなく「51〜100位」のような
+//   大まかな範囲だけを、ヒントをオンにした本人の画面にだけ出します。
 // ============================================================
 
-import { MIN_PLAYERS, MAX_PLAYERS, VOTE_NAME } from './config.js';
+import { GAME_MODES, MIN_PLAYERS, MAX_PLAYERS, VOTE_NAME } from './config.js';
 import { $, escapeHtml, normalizeText, searchCharacters } from './util.js';
 import {
+  DRAW_DECISION,
   rulesOf,
   modeOf,
   listModes,
   presetRules,
+  originalSettingsOf,
+  isDrawRules,
   listUsableCharacters,
   rankSpanOf,
-  findRuleProblems,
+  hintRangeOf,
+  drawnCharIdOf,
   roundKeyOf,
   turnKey,
   isBanned,
@@ -74,28 +82,50 @@ function rangeInfo(rules, characters) {
   return { all, count, last, text: all ? '全キャラクター' : `人気投票 ${rules.minRank}〜${last} 位` };
 }
 
+/** オリジナルの「キャラの出し方」の名前と説明。例: { name: 'ランダムキャラクター', description: '人ごとに違うキャラが出る' } */
+function drawStyleInfo(state, drawStyle) {
+  return GAME_MODES[modeOf(state).id].drawStyles?.[drawStyle] ?? { name: drawStyle, description: '' };
+}
+
 /**
  * ルールを「項目の名前」と「内容」の組にして返す。
  * 例: [['目標値', '50 点'], ['バースト', '51 点以上'], ['ターン数', '5 ターン'], ['キャラクター', '人気投票 1〜50 位（50人）']]
- * 待機画面のルールの欄と、オリジナルで開始する前の確認に使う。
+ * 待機画面のルールの欄に使う。オリジナルのときは「キャラの出し方」も加える。
  */
-export function rulesRows(rules, characters) {
+function rulesRows(state, characters) {
+  const rules = rulesOf(state);
   const range = rangeInfo(rules, characters);
-  return [
+  const rows = [
     ['目標値', `${rules.targetScore} 点`],
     ['バースト', `${rules.burstScore} 点以上`],
     ['ターン数', `${rules.maxTurns} ターン`],
     ['キャラクター', `${range.text}（${range.count}人）`],
   ];
+  if (isDrawRules(rules)) {
+    const style = drawStyleInfo(state, rules.drawStyle);
+    rows.push(['キャラの出し方', `${style.name}（${style.description}）`]);
+  }
+  return rows;
 }
 
-/** 「遊び方」に出す、そのルールの説明文 */
-function describeRules(rules, characters) {
+/** 「遊び方」に出す、そのゲームのルールの説明文 */
+function describeRules(state, characters) {
+  const rules = rulesOf(state);
   const range = rangeInfo(rules, characters);
   const ranks = rules.minRank === 1 ? `上位${range.last}位` : `${rules.minRank}〜${range.last}位`;
   const using = range.all
     ? `${VOTE_NAME}の順位を使って`
     : `${VOTE_NAME}の${ranks}のキャラクターだけを使って`;
+
+  if (isDrawRules(rules)) {
+    const style = drawStyleInfo(state, rules.drawStyle);
+    return (
+      `${using}、${rules.targetScore}点を目指します。` +
+      `毎ターン、キャラクターが1人出ます。キャラの出し方は「${style.name}」（${style.description}）です。` +
+      `名前だけを見て「持つ」か「持たない」かを決め、${rules.maxTurns}ターンで${rules.targetScore}点にできるだけ近づけてください。` +
+      `${rules.burstScore}点以上になるとバーストです。`
+    );
+  }
   return (
     `${using}、${rules.targetScore}点を目指します。` +
     `${rules.maxTurns}回の選択で、${rules.targetScore}点にできるだけ近づけてください。` +
@@ -137,21 +167,28 @@ export function renderLobby(app) {
   const iAmHost = hostUid === app.uid;
   const readyCount = startCandidates(room).length;   // 開始したら参加できる人数
 
-  $('lobby-room-id').textContent = app.roomId;
-  $('lobby-count').textContent = `${players.length}人（最大${MAX_PLAYERS}人）`;
+  // ルームIDは1文字ずつ <span> に入れて、札が並んだように見せる（読み上げ用に、まとめた文字も aria-label に入れる）
+  const roomIdElement = $('lobby-room-id');
+  roomIdElement.innerHTML = [...app.roomId].map((ch) => `<span>${escapeHtml(ch)}</span>`).join('');
+  roomIdElement.setAttribute('aria-label', `ルームID ${app.roomId}`);
+  $('lobby-count').textContent = `${players.length} / ${MAX_PLAYERS}人`;
 
-  $('lobby-players').innerHTML = players
-    .map((player) => {
-      const online = isOnline(room, player.uid);
-      return `
+  // 参加者の行。まだ空きがあるときは、最後に「参加を待っています…」の空き枠を1つ出す
+  const emptySlot =
+    players.length < MAX_PLAYERS ? '<li class="player-item is-empty">参加を待っています…</li>' : '';
+  $('lobby-players').innerHTML =
+    players
+      .map((player) => {
+        const online = isOnline(room, player.uid);
+        return `
         <li class="player-item ${online ? '' : 'is-offline'}">
           <span class="player-name">${escapeHtml(player.name)}</span>
           ${meTag(app, player.uid)}
           ${player.uid === hostUid ? '<span class="tag tag-host">ホスト</span>' : ''}
           ${online ? '' : '<span class="tag tag-offline">オフライン</span>'}
         </li>`;
-    })
-    .join('');
+      })
+      .join('') + emptySlot;
 
   renderModeCard(app, iAmHost);
 
@@ -172,104 +209,101 @@ export function renderLobby(app) {
 }
 
 /**
- * 待機画面の「ゲームモードを選択」のカードを描く（モードの一覧・ルール・オリジナルの設定欄）。
- * 選ばれているモードとルールは、ルームのデータ（state.mode / state.rules）から読むので、全員の画面で同じになる。
- * 選べるのはホストだけ。ほかの人には、同じ一覧とルールが「見るだけ」の状態で表示される。
+ * 丸印つきの選択ボタン（モードの一覧と、オリジナルの設定で使う）を1つ作る。
+ * @param {object} option { selected, name, detail, data（ボタンにつける data-… 属性の文字列）, soon }
+ * @param {boolean} enabled 押せるか（ホスト以外の人には「見るだけ」で表示する）
+ */
+function optionRow({ selected, name, detail, data, soon = false }, enabled) {
+  const classes = ['mode-row', selected ? 'is-selected' : '', soon ? 'is-soon' : ''].join(' ');
+  return `
+    <li>
+      <button type="button" class="${classes}" ${data} aria-pressed="${selected}" ${enabled ? '' : 'disabled'}>
+        <span class="mode-radio" aria-hidden="true"></span>
+        <span class="mode-text">
+          <span class="mode-name">${escapeHtml(name)}</span>
+          <span class="mode-detail">${escapeHtml(detail)}</span>
+        </span>
+        ${soon ? '<span class="mode-tag">準備中</span>' : ''}
+      </button>
+    </li>`;
+}
+
+/**
+ * 待機画面の「ゲームモードを選択」のカードを描く（モードの一覧・オリジナルの設定・ルール・ヒント）。
+ * 選ばれているモードとルールは、ルームのデータ（state.mode / state.rules / state.original）から読むので、
+ * 全員の画面で同じになる。選べるのはホストだけ。ほかの人には、同じ内容が「見るだけ」の状態で表示される。
  */
 function renderModeCard(app, iAmHost) {
   const state = app.room.state;
   const current = modeOf(state);
-  const rules = rulesOf(state);
 
   // ---- モードの一覧 ----
   $('lobby-mode-title').textContent = iAmHost ? 'ゲームモードを選択' : 'ゲームモード';
   $('lobby-modes').innerHTML = listModes()
-    .map((mode) => {
-      const selected = mode.id === current.id;
-      const classes = ['mode-row', selected ? 'is-selected' : '', mode.available ? '' : 'is-soon'].join(' ');
-      return `
-        <li>
-          <button type="button" class="${classes}" data-mode="${escapeHtml(mode.id)}"
-                  aria-pressed="${selected}" ${iAmHost ? '' : 'disabled'}>
-            <span class="mode-radio" aria-hidden="true"></span>
-            <span class="mode-text">
-              <span class="mode-name">${escapeHtml(mode.name)}</span>
-              <span class="mode-detail">${escapeHtml(mode.description)}</span>
-            </span>
-            ${mode.available ? '' : '<span class="mode-tag">準備中</span>'}
-          </button>
-        </li>`;
-    })
+    .map((mode) =>
+      optionRow(
+        {
+          selected: mode.id === current.id,
+          name: mode.name,
+          detail: mode.description,
+          data: `data-mode="${escapeHtml(mode.id)}"`,
+          soon: !mode.available,
+        },
+        iAmHost
+      )
+    )
     .join('');
 
-  // ---- オリジナルの設定欄（ホストがオリジナルを選んでいるあいだだけ出す）----
-  // 入力欄に値を入れるのは「出し始めるとき」だけ。
-  // ルームのデータが届くたびに入れ直すと、入力している途中の文字が消えてしまうため。
-  const editing = iAmHost && current.custom;
-  const form = $('original-form');
-  if (editing && form.hidden) fillOriginalForm(app, rules);
-  form.hidden = !editing;
+  // ---- オリジナルの設定（数字の借り先・キャラの出し方）。オリジナルのときだけ出す ----
+  $('original-options').hidden = !current.draw;
+  if (current.draw) {
+    const mode = GAME_MODES[current.id];
+    const settings = originalSettingsOf(state, current.id);
+    $('original-bases').innerHTML = mode.bases
+      .map((base) => {
+        const rules = presetRules(base);
+        return optionRow(
+          {
+            selected: base === settings.base,
+            name: `${GAME_MODES[base].name}の設定`,
+            detail: `${rangeInfo(rules, app.characters).text}・目標${rules.targetScore}点・${rules.maxTurns}ターン`,
+            data: `data-original-base="${escapeHtml(base)}"`,
+          },
+          iAmHost
+        );
+      })
+      .join('');
+    $('original-draw-styles').innerHTML = Object.entries(mode.drawStyles)
+      .map(([id, style]) =>
+        optionRow(
+          {
+            selected: id === settings.drawStyle,
+            name: style.name,
+            detail: style.description,
+            data: `data-draw-style="${escapeHtml(id)}"`,
+          },
+          iAmHost
+        )
+      )
+      .join('');
+  }
 
-  // ---- 選ばれているモードのルール（設定欄を出しているあいだは、こちらは隠す）----
-  const box = $('lobby-rules');
-  box.hidden = editing;
-  box.innerHTML = `
-    <p class="rules-box-title">${escapeHtml(current.name)}のルール${current.custom ? '（ホストが設定）' : ''}</p>
+  // ---- 選ばれているモードのルール ----
+  $('lobby-rules').innerHTML = `
+    <p class="rules-box-title">${escapeHtml(current.name)}のルール</p>
     <dl>
-      ${rulesRows(rules, app.characters)
+      ${rulesRows(state, app.characters)
         .map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`)
         .join('')}
     </dl>`;
 
+  // ---- 初心者のヒント（オリジナルのときだけ。一人ひとりが自分で選ぶ）----
+  $('hint-row').hidden = !current.draw;
+  $('input-hint').checked = Boolean(app.showHint);
+
   $('lobby-mode-note').textContent = iAmHost
     ? `モード：${current.name}（ゲームを開始すると変更できません）`
     : `モード：${current.name}（ホストが選びます）`;
-}
-
-// ---- オリジナルの設定欄 ----
-
-/** 設定欄の入力欄の id（ルールの項目名 → 入力欄の id） */
-export const ORIGINAL_INPUTS = {
-  targetScore: 'input-original-target',
-  burstScore: 'input-original-burst',
-  maxTurns: 'input-original-turns',
-  minRank: 'input-original-min-rank',
-  maxRank: 'input-original-max-rank',
-};
-
-/** 設定欄に、ルールの値を入れる */
-function fillOriginalForm(app, rules) {
-  // 順位の「終了」が決まっていないルール（最後の順位まで）は、データにある最後の順位を入れる
-  const values = { ...rules, maxRank: rules.maxRank ?? rankSpanOf(app.characters).last };
-  for (const [key, id] of Object.entries(ORIGINAL_INPUTS)) {
-    $(id).value = values[key];
-  }
-  renderOriginalCheck(app, values);
-}
-
-/**
- * 設定欄の下に、「その順位の範囲にいるキャラクターの人数」と、入力の問題点を表示する。
- * @param {object} rules 入力欄から読んだ値（数字でない入力は NaN）
- * @returns {string[]} 見つかった問題（なければ空の配列）
- */
-export function renderOriginalCheck(app, rules) {
-  const problems = findRuleProblems(rules, app.characters);
-
-  const rangeReadable =
-    Number.isInteger(rules.minRank) && Number.isInteger(rules.maxRank) && rules.minRank <= rules.maxRank;
-  $('original-count').textContent = rangeReadable
-    ? `この範囲のキャラクター：${listUsableCharacters(rules, app.characters).length}人`
-    : '';
-
-  const error = $('error-original');
-  error.hidden = problems.length === 0;
-  error.textContent = problems.join('\n');
-  return problems;
-}
-
-/** ルームを出るときに、設定欄を閉じておく（次に出すとき、新しいルームの設定が入るように） */
-export function resetLobby() {
-  $('original-form').hidden = true;
 }
 
 // ============================================================
@@ -281,30 +315,64 @@ export function renderStatusBar(element, app) {
   const me = state.scores[app.uid];
   const remainingTurns = rules.maxTurns - state.turn;
 
+  // ターンの進み具合を、横に並んだ短い線で表す（終わったターン・いまのターン・これからのターン）
+  const dots = Array.from({ length: rules.maxTurns }, (_, i) => {
+    const turn = i + 1;
+    const className = turn < state.turn ? 'is-past' : turn === state.turn ? 'is-now' : '';
+    return `<i class="${className}"></i>`;
+  }).join('');
+
+  // 左側：自分の合計（大きな数字） ／ 右側：目標まであと何点か
   let mine;
+  let side = '';
   if (!me) {
-    mine = '<div class="status-total">観戦中</div>';
-  } else if (me.out) {
-    mine = `<div class="status-total">現在 <b>${me.total}</b> 点 ${BURST_STAMP}</div>`;
+    mine = '<p class="status-label">観戦中</p><p class="status-watching">このゲームには参加していません</p>';
   } else {
-    // 目標値まであと何点か。目標値を超えているとき（バーストする点数を目標値より
-    // 2以上大きくしたオリジナルのルールで起きる）は、超えた点数を出す
-    const rest = rules.targetScore - me.total;
-    const restText = rest >= 0 ? `あと ${rest}` : `${-rest} 超過`;
-    mine = `<div class="status-total">現在 <b>${me.total}</b> 点 <span class="status-rest">${restText}</span></div>`;
+    mine = `
+      <p class="status-label">あなたの合計</p>
+      <p class="status-total"><b>${me.total}</b><span>/ ${rules.targetScore}</span></p>`;
+    if (me.out) {
+      side = BURST_STAMP;
+    } else {
+      // 目標値まであと何点か。目標値を超えているとき（バーストする点数を目標値より
+      // 2以上大きくしたルールで起きる）は、超えた点数を出す
+      const rest = rules.targetScore - me.total;
+      side = rest >= 0
+        ? `<p class="status-label">ぴったりまで</p><p class="status-rest">あと ${rest}</p>`
+        : `<p class="status-label">目標を超えています</p><p class="status-rest">${-rest} 超過</p>`;
+    }
+  }
+
+  // ゲージ：左端が 0 点、右端が「バーストする点数」。白い目盛りが目標値の位置
+  let gauge = '';
+  if (me) {
+    const percent = (score) => Math.min(100, Math.max(0, (score / rules.burstScore) * 100));
+    gauge = `
+      <div class="status-gauge ${me.out ? 'is-out' : ''}" aria-hidden="true">
+        <div class="gauge-bar">
+          <span class="gauge-fill" style="width:${percent(me.total)}%"></span>
+          <span class="gauge-target" style="left:${percent(rules.targetScore)}%"></span>
+        </div>
+        <div class="gauge-labels"><span>0</span><span>${rules.burstScore}以上でバースト</span></div>
+      </div>`;
   }
 
   element.innerHTML = `
     <div class="status-row">
-      <div class="status-turn">TURN <b>${state.turn}</b> / ${rules.maxTurns}</div>
-      <div class="status-remain">${remainingTurns > 0 ? `残り ${remainingTurns} ターン` : '最終ターン'}</div>
+      <div class="status-turn">
+        <span class="status-turn-label">ターン</span>
+        <span class="status-dots" aria-hidden="true">${dots}</span>
+        <b>${state.turn} / ${rules.maxTurns}</b>
+      </div>
+      <div class="status-remain">${remainingTurns > 0 ? `残り ${remainingTurns}` : '最終ターン'}</div>
       <div class="status-mode" title="ゲームモード">${escapeHtml(modeOf(state).name)}</div>
-      <button class="status-menu" type="button" data-action="menu" aria-label="メニュー">☰</button>
+      <button class="status-menu" type="button" data-action="menu" aria-label="メニュー"><i></i><i></i><i></i></button>
     </div>
-    <div class="status-row">
-      ${mine}
-      <div class="status-target">目標 <b>${rules.targetScore}</b> 点</div>
-    </div>`;
+    <div class="status-score">
+      <div class="status-mine">${mine}</div>
+      <div class="status-side">${side}</div>
+    </div>
+    ${gauge}`;
 }
 
 // ============================================================
@@ -452,6 +520,18 @@ function renderWaiting(app) {
       <p class="waiting-label">${BURST_STAMP}</p>
       <p class="waiting-text">合計が ${me.total} 点になりました。<br>ここからは観戦になります。</p>
       <p class="waiting-note">${rulesOf(state).burstScore} 点以上でバーストです</p>`;
+  } else if (isDrawRules(rulesOf(state))) {
+    // オリジナル：出たキャラの名前と「持つ／持たない」だけを出す（順位は結果公開まで分からない）
+    const character = app.charById.get(drawnCharIdOf(state, app.uid));
+    const decision = app.myPick?.roundKey === roundKey ? app.myPick.charId : null;
+    const decisionText = { [DRAW_DECISION.keep]: '持つ', [DRAW_DECISION.pass]: '持たない' }[decision];
+    mine = character && decisionText
+      ? `
+        <p class="waiting-label">あなたの選択（決定済み）</p>
+        <p class="waiting-char">${escapeHtml(character.name)}</p>
+        <p class="waiting-decision is-${decision === DRAW_DECISION.keep ? 'keep' : 'pass'}">${decisionText}</p>
+        <p class="waiting-note">順位は、全員が決めると公開されます</p>`
+      : '<p class="waiting-label">あなたの選択（決定済み）</p><p class="waiting-text">読み込み中…</p>';
   } else {
     // 自分が選んだキャラクターの名前だけを出す（順位とポイントは結果公開までのお楽しみ）
     const character = app.myPick?.roundKey === roundKey ? app.charById.get(app.myPick.charId) : null;
@@ -486,39 +566,74 @@ export function renderGame(app) {
   const decided = Boolean(submitted[app.uid]) || app.myPick?.roundKey === roundKey;
   const picking = Boolean(me) && !me.out && !decided;
 
+  const rules = rulesOf(state);
+  const drawing = isDrawRules(rules);   // オリジナル（持つ／持たない）か
+
   renderStatusBar($('game-status'), app);
   renderScoreboard(app);
 
-  $('search-row').hidden = !picking;
-  $('game-picker').hidden = !picking;
+  // 選ぶ画面は、ハード・ノーマルなら「キャラクター一覧」、オリジナルなら「出たキャラ」
+  $('search-row').hidden = !picking || drawing;
+  $('game-picker').hidden = !picking || drawing;
+  $('game-draw').hidden = !picking || !drawing;
   $('game-waiting').hidden = picking;
 
-  if (picking) {
-    const rules = rulesOf(state);
-    const rest = rules.targetScore - me.total;         // 目標値まで、あと何点か
-    const untilBurst = rules.burstScore - me.total;    // あと何点の加点でバーストするか
-    const picksLeft = rules.maxTurns - state.turn + 1;
-    let progress;
-    if (rest > 0) {
-      progress = `あと ${rest} 点（${rules.burstScore} 点以上でバースト）。このターンを入れて、あと ${picksLeft} 回選びます。`;
-    } else {
-      // 目標値ちょうど、または目標値を超えているとき。
-      // （超えたまま残れるのは、バーストする点数を目標値より2以上大きくしたオリジナルのルールだけ）
-      const position = rest === 0 ? `いま ${me.total} 点ちょうど。` : `目標を ${-rest} 点超えています。`;
-      const danger =
-        untilBurst === 1
-          ? '加点されるとバーストです（重複して +0 ならセーフ）。'
-          : `あと ${untilBurst} 点以上の加点でバーストです。`;
-      progress = position + danger;
-    }
-    // 使えるキャラクターが限られているルール（ノーマルなど）では、そのことも伝える
-    const range = rangeInfo(rules, app.characters);
-    const rangeNote = range.all ? '' : `選べるのは${range.text}のキャラクターだけです。`;
-    $('picker-hint').textContent = progress + rangeNote;
-    renderPickPanel(app);
-  } else {
+  if (!picking) {
     renderWaiting(app);
+    return;
   }
+
+  const rest = rules.targetScore - me.total;         // 目標値まで、あと何点か
+  const untilBurst = rules.burstScore - me.total;    // あと何点の加点でバーストするか
+  const picksLeft = rules.maxTurns - state.turn + 1;
+  let progress;
+  if (rest > 0) {
+    const times = drawing ? `あと ${picksLeft} 回キャラが出ます` : `あと ${picksLeft} 回選びます`;
+    progress = `あと ${rest} 点（${rules.burstScore} 点以上でバースト）。このターンを入れて、${times}。`;
+  } else {
+    // 目標値ちょうど、または目標値を超えているとき。
+    // （超えたまま残れるのは、バーストする点数を目標値より2以上大きくしたルールだけ）
+    const position = rest === 0 ? `いま ${me.total} 点ちょうど。` : `目標を ${-rest} 点超えています。`;
+    let danger;
+    if (untilBurst > 1) danger = `あと ${untilBurst} 点以上の加点でバーストです。`;
+    else if (drawing) danger = '持つとバーストします（「持たない」なら、このままです）。';
+    else danger = '加点されるとバーストです（重複して +0 ならセーフ）。';
+    progress = position + danger;
+  }
+
+  if (drawing) {
+    $('draw-progress').textContent = progress;
+    renderDrawCard(app);
+    return;
+  }
+  // 使えるキャラクターが限られているルール（ノーマルなど）では、そのことも伝える
+  const range = rangeInfo(rules, app.characters);
+  const rangeNote = range.all ? '' : `選べるのは${range.text}のキャラクターだけです。`;
+  $('picker-hint').textContent = progress + rangeNote;
+  renderPickPanel(app);
+}
+
+/**
+ * オリジナル：このターンに自分に出たキャラを描く。出すのは名前だけ（順位とポイントは結果公開まで）。
+ * 初心者のヒントをオンにしている人には、順位の大まかな範囲（例：51〜100位）も出す。
+ */
+function renderDrawCard(app) {
+  const state = app.room.state;
+  const rules = rulesOf(state);
+  const character = app.charById.get(drawnCharIdOf(state, app.uid));
+
+  $('draw-label').textContent =
+    rules.drawStyle === 'shared' ? 'このターンのキャラクター（全員同じ）' : 'あなたに出たキャラクター';
+  $('draw-name').textContent = character ? character.name : '読み込み中…';
+
+  const hint = $('draw-hint');
+  hint.hidden = !(app.showHint && character);
+  if (character) {
+    const { from, to } = hintRangeOf(rules, character.rank, app.characters);
+    hint.textContent = `ヒント：人気投票 ${from}〜${to}位 のどこか`;
+  }
+  $('btn-keep').disabled = !character;
+  $('btn-pass').disabled = !character;
 }
 
 // ============================================================
@@ -538,7 +653,7 @@ export function renderRevealCards(app) {
   // （途中のターンでは出さない。まだ選択が残っていて、最終的な結果ではないため）
   const last = isLastReveal(state);
 
-  $('reveal-title').innerHTML = `<span class="reveal-turn">TURN ${state.turn}</span>結果公開！`;
+  $('reveal-title').innerHTML = `<span class="reveal-turn">ターン ${state.turn} ・ 一斉公開</span>選んだキャラと順位`;
 
   let order = 0;
   $('reveal-list').innerHTML = listParticipants(state)
@@ -550,6 +665,7 @@ export function renderRevealCards(app) {
       if (!result) {
         return `
           <li class="reveal-card is-skipped" style="--i:${order++}">
+            <div class="reveal-seal">観戦</div>
             <div class="reveal-left">
               ${name}
               <div class="reveal-pick">選択なし</div>
@@ -561,12 +677,14 @@ export function renderRevealCards(app) {
       }
 
       // 結果が公開されたので、ここで初めて人気投票の順位と獲得ポイントを見せる
+      // （オリジナルでは、見送ったキャラの順位も見せる。「実は3位だった！」がその場の話題になるように）
       const character = app.charById.get(result.charId);
-      const pick = character
-        ? `${escapeHtml(character.name)}<small>人気投票 ${character.rank}位</small>`
-        : '（未選択）';
+      const pick = character ? escapeHtml(character.name) : '（未選択）';
+      // 左の判子：人気投票の順位（キャラがいないとき＝時間切れ・無効は「—」）
+      const seal = character ? `<b>${character.rank}</b>位` : '—';
       const notes = {
-        ok: '',
+        ok: isDrawRules(rules) ? '<span class="reveal-note">持つ</span>' : '',
+        pass: '<span class="reveal-note">見送り</span>',
         duplicate: '<span class="reveal-note">重複！</span>',
         invalid: '<span class="reveal-note">無効</span>',
         none: '<span class="reveal-note">時間切れ</span>',
@@ -580,6 +698,7 @@ export function renderRevealCards(app) {
       // カードの左側に「だれが・だれを選んだか」、右側に「加点と合計」を並べる
       return `
         <li class="reveal-card is-${result.outcome} ${result.out ? 'is-out' : ''} ${exact ? 'is-exact' : ''}" style="--i:${order++}">
+          <div class="reveal-seal" title="人気投票の順位">${seal}</div>
           <div class="reveal-left">
             ${name}
             <div class="reveal-pick">${pick}</div>
@@ -636,13 +755,19 @@ export function renderResult(app) {
   const { room } = app;
   const state = room.state;
   const mode = modeOf(state);
-  const { targetScore, burstScore } = rulesOf(state);
+  const rules = rulesOf(state);
+  const { targetScore, burstScore } = rules;
   const { winners, ranking } = judgeResult(state);
 
-  // オリジナルのときは、どんなルールで遊んだかも添える
-  $('result-mode').textContent = mode.custom
-    ? `モード：${mode.name}（目標 ${targetScore} 点・${burstScore} 点以上でバースト）`
-    : `モード：${mode.name}`;
+  // オリジナルのときは、どの設定で遊んだかも添える。例：モード：オリジナル（ハードの設定・ランダムキャラクター）
+  if (isDrawRules(rules)) {
+    const settings = originalSettingsOf(state, mode.id);
+    const baseName = GAME_MODES[settings.base]?.name ?? '';
+    $('result-mode').textContent =
+      `モード：${mode.name}（${baseName}の設定・${drawStyleInfo(state, rules.drawStyle).name}）`;
+  } else {
+    $('result-mode').textContent = `モード：${mode.name}`;
+  }
 
   // ---- 勝者 ----
   if (winners.length === 0) {
@@ -655,18 +780,26 @@ export function renderResult(app) {
     const winnerList = ranking.filter((p) => p.isWinner);
     // 勝者が目標値ちょうどなら「ぴったり賞」（差が 0 なので、ぴったりの人は必ず勝者になる）
     const exact = best.exact;
-    // 勝者が複数いて点数が違うとき（目標値をはさんで同じ差。オリジナルのルールで起きる）は、差だけを出す
+    // 勝者が複数いて点数が違うとき（目標値をはさんで同じ差。バーストが目標値より2以上大きいルールで起きる）は、
+    // 合計の大きな数字は出さず、差だけを出す
     const sameTotal = winnerList.every((p) => p.total === best.total);
+    const score = sameTotal
+      ? `<p class="winner-score"><b>${best.total}</b><span>/ ${targetScore}</span></p>`
+      : '';
     let detail;
     if (exact) detail = `${targetScore}点ちょうど！`;
-    else if (sameTotal) detail = `${best.total}点（${targetScore}との差：${best.diff}）`;
     else detail = `${targetScore}との差：${best.diff}`;
     $('result-winner').className = `winner-card ${exact ? 'is-exact' : ''}`;
     $('result-winner').innerHTML = `
-      <p class="winner-label">🏆 WINNER</p>
-      ${exact ? '<p class="exact-ribbon">ぴったり賞</p>' : ''}
-      ${winnerList.map((p) => `<p class="winner-name">${escapeHtml(p.name)}</p>`).join('')}
-      <p class="winner-detail">${detail}${winners.length > 1 ? '<br>同率1位！' : ''}</p>`;
+      <div class="winner-head">
+        <div>
+          <p class="winner-label">勝者</p>
+          ${winnerList.map((p) => `<p class="winner-name">${escapeHtml(p.name)}</p>`).join('')}
+        </div>
+        ${exact ? '<p class="exact-ribbon"><small>ぴったり</small>賞</p>' : ''}
+      </div>
+      ${score}
+      <p class="winner-detail">${detail}${winners.length > 1 ? '　同率1位！' : ''}</p>`;
   }
 
   // ---- 全員の順位 ----
@@ -698,7 +831,7 @@ export function renderResult(app) {
         } else {
           const character = app.charById.get(result.charId);
           const label = character ? `${escapeHtml(character.name)}（${character.rank}位）` : '未選択';
-          const note = { ok: '', duplicate: ' 重複', invalid: ' 無効', none: '' }[result.outcome];
+          const note = { ok: '', pass: ' 見送り', duplicate: ' 重複', invalid: ' 無効', none: '' }[result.outcome];
           text = `${label} <b>+${result.gained}${note}</b> → ${result.after}${result.out ? ' <span class="text-out">バースト</span>' : ''}`;
         }
         lines.push(`<li><span class="history-turn">T${turn}</span>${text}</li>`);
@@ -740,7 +873,7 @@ export function renderRules(app) {
     const mode = modeOf(state);
     const rules = rulesOf(state);
     $('rules-mode').textContent = `（${mode.name}）`;
-    blocks = [[mode.name, describeRules(rules, app.characters)]];
+    blocks = [[mode.name, describeRules(state, app.characters)]];
     lastPick = `${rules.maxTurns}回目（最後）`;
     words = {
       target: `${rules.targetScore}点`,
@@ -752,14 +885,21 @@ export function renderRules(app) {
     $('rules-mode').textContent = '';
     blocks = modes.map((mode) => [
       mode.name,
-      mode.custom
-        ? '目標値・バーストする点数・ターン数・使えるキャラクターの順位を、ホストが自由に決めて遊ぶモードです。'
-        : describeRules(presetRules(mode.id), app.characters),
+      mode.draw
+        ? '毎ターン、ランダムにキャラクターが1人出ます。名前だけを見て「持つ」か「持たない」かを決めるモードです。' +
+          '数字（ハードかノーマルの設定）と、キャラの出し方（人ごとに違う／全員同じ）は、ホストが選びます。'
+        : describeRules({ mode: mode.id, rules: presetRules(mode.id) }, app.characters),
     ]);
-    // ルールが決まっているモードのターン数がどれも同じなら「5回目（最後）」、ちがえば「最後」と書く
-    const turnCounts = new Set(modes.filter((mode) => !mode.custom).map((mode) => presetRules(mode.id).maxTurns));
+    // どのモードもターン数が同じなら「5回目（最後）」、ちがえば「最後」と書く
+    const turnCounts = new Set(modes.map((mode) => presetRules(mode.id).maxTurns));
     lastPick = turnCounts.size === 1 ? `${[...turnCounts][0]}回目（最後）` : '最後';
     words = { target: '目標値', burst: 'バーストする点数', turns: '最後のターン' };
+  }
+
+  // 「ゲームの流れ」は、オリジナルのルームなら「持つ／持たない」の説明に、それ以外は「キャラを選ぶ」説明にする
+  const drawFlow = Boolean(state) && isDrawRules(rulesOf(state));
+  for (const item of document.querySelectorAll('[data-flow]')) {
+    item.hidden = (item.dataset.flow === 'draw') !== drawFlow;
   }
 
   $('rules-modes').innerHTML =

@@ -20,12 +20,13 @@ import {
   confirmDialog,
   copyText,
   prepareCharacters,
-  parseWholeNumber,
 } from './util.js';
 import { initBackend, backend, isDemoMode } from './backend.js';
 import { makeQrSvg } from './qr.js';
 import {
+  DRAW_DECISION,
   modeOf,
+  originalSettingsOf,
   compatibilityOf,
   roundKeyOf,
   allActiveSubmitted,
@@ -38,6 +39,7 @@ import * as views from './views.js';
 // ブラウザに覚えさせておく項目の名前
 const STORAGE_ROOM = 'thbj-room';   // 最後に入ったルームID（リロード後に戻るため）
 const STORAGE_NAME = 'thbj-name';   // 最後に使ったプレイヤー名
+const STORAGE_HINT = 'thbj-hint';   // オリジナルで初心者のヒントを表示するか（'1' なら表示）
 const RETURN_LIMIT_MS = 12 * 60 * 60 * 1000;   // これより古いルームには自動で戻らない（12時間）
 
 /** アプリ全体の状態。画面はすべてこの中身をもとに描かれる */
@@ -54,6 +56,7 @@ const app = {
   pickerRoundKey: null,  // キャラ一覧を描画済みのラウンド
   revealRoundKey: null,  // 結果公開の演出を表示済みのラウンド
   submitting: false,     // 決定を送信中か
+  showHint: false,       // オリジナルで初心者のヒントを表示するか（この端末だけの設定）
 };
 
 // ============================================================
@@ -74,6 +77,7 @@ async function start() {
   }
 
   $('banner-demo').hidden = !isDemoMode;
+  app.showHint = backend.storage.getItem(STORAGE_HINT) === '1';
   views.renderTop();
   watchConnection();
   await openFirstScreen();
@@ -180,7 +184,6 @@ function exitRoom(message) {
   history.replaceState(null, '', url);
 
   for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close();
-  views.resetLobby();
   updateWakeLock();
   showScreen('top');
   if (message) showToast(message, 'error');
@@ -541,66 +544,32 @@ function onModeTap(event) {
   roomApi.setMode(app.roomId, app.room, modeId).catch((error) => showError(error));
 }
 
-// ---- オリジナルのルール設定（ホストだけに出る設定欄）----
+// ---- オリジナルの設定・初心者のヒント ----
 
-/** 設定欄から、入力されている値を読む（数字でない入力は NaN になる） */
-function readOriginalForm() {
-  const rules = {};
-  for (const [key, id] of Object.entries(views.ORIGINAL_INPUTS)) {
-    rules[key] = parseWholeNumber($(id).value);
-  }
-  return rules;
+/**
+ * 待機画面で、オリジナルの設定（数字の借り先・キャラの出し方）をタップ（選べるのはホストだけ）。
+ * 選んだ設定はルームに保存され、参加者の待機画面にも同じ内容が表示される。
+ */
+function onOriginalOptionTap(event) {
+  const row = event.target.closest('[data-original-base], [data-draw-style]');
+  if (!row || row.disabled) return;
+  const settings = { ...originalSettingsOf(app.room.state) };
+  if (row.dataset.originalBase) settings.base = row.dataset.originalBase;
+  if (row.dataset.drawStyle) settings.drawStyle = row.dataset.drawStyle;
+  roomApi.setOriginalSettings(app.roomId, app.room, settings).catch((error) => showError(error));
 }
 
 /**
- * 設定欄に入力しているとき（1文字ごとに呼ばれる）：
- * キャラクターの人数と、入力の問題点の表示を更新する。
- * 目標値を変えたときは、バーストする点数を自動で「目標値 + 1」にする。
+ * 「初心者（ヒントを表示）」のチェック。この端末にだけ覚えさせる（ルームのデータには書かない）。
+ * 次にこの端末で遊ぶときも、同じ設定になる。
  */
-function onOriginalInput(event) {
-  if (event.target.id === views.ORIGINAL_INPUTS.targetScore) {
-    const targetScore = parseWholeNumber(event.target.value);
-    if (Number.isInteger(targetScore)) $(views.ORIGINAL_INPUTS.burstScore).value = targetScore + 1;
-  }
-  views.renderOriginalCheck(app, readOriginalForm());
-}
-
-/**
- * 設定欄の入力を終えたとき（ほかの場所をタップした・キーボードを閉じたときに呼ばれる）：
- * 問題がなければ、ルールをルームに保存する。保存すると、参加者の待機画面にも同じ内容が表示される。
- */
-function onOriginalChange() {
-  const rules = readOriginalForm();
-  if (views.renderOriginalCheck(app, rules).length > 0) return;   // 問題があるあいだは保存しない
-  // 全角で入力された数字などを、読み取った数字（半角）に書き直しておく
-  for (const [key, id] of Object.entries(views.ORIGINAL_INPUTS)) {
-    $(id).value = rules[key];
-  }
-  roomApi.setOriginalRules(app.roomId, app.room, rules, app.characters).catch((error) => showError(error));
+function onHintToggle(event) {
+  app.showHint = event.target.checked;
+  backend.storage.setItem(STORAGE_HINT, app.showHint ? '1' : '0');
 }
 
 /** 「ゲーム開始」（ホスト） */
 async function onStart() {
-  // オリジナルのときは、設定欄の内容を確かめてもらってから開始する
-  let originalRules = null;
-  if (modeOf(app.room.state).custom) {
-    originalRules = readOriginalForm();
-    if (views.renderOriginalCheck(app, originalRules).length > 0) {
-      showToast('オリジナルルールの入力を確認してください。', 'error');
-      $('original-form').scrollIntoView({ block: 'center' });
-      return;
-    }
-    const ok = await confirmDialog({
-      title: 'このルールで開始しますか？',
-      message: views
-        .rulesRows(originalRules, app.characters)
-        .map(([label, value]) => `${label}：${value}`)
-        .join('\n'),
-      okLabel: '開始する',
-    });
-    if (!ok) return;
-  }
-
   const offlineNames = roomApi
     .listPlayers(app.room)
     .filter((p) => !roomApi.isOnline(app.room, p.uid))
@@ -613,7 +582,7 @@ async function onStart() {
     });
     if (!ok) return;
   }
-  runTask($('btn-start'), () => roomApi.startGame(app.roomId, app.room, originalRules, app.characters));
+  runTask($('btn-start'), () => roomApi.startGame(app.roomId, app.room, app.characters));
 }
 
 /** キャラクター一覧をタップ */
@@ -653,6 +622,29 @@ async function onDecide() {
     await roomApi.submitPick(app.roomId, app.room, charId, app.charById);
   } catch (error) {
     app.myPick = null;   // 送れなかったら、選択画面に戻す
+    showError(error);
+  } finally {
+    app.submitting = false;
+    render();
+  }
+}
+
+/**
+ * オリジナル：「持つ」「持たない」（押すとすぐに決定する。あとから変えられない）
+ * @param {boolean} keep 持つなら true
+ */
+async function onDrawDecision(keep) {
+  if (app.submitting) return;
+  const roundKey = roundKeyOf(app.room.state);
+  app.submitting = true;
+  // すぐに「決定済み」の表示へ切り替える（charId のところに「持つ／持たない」の値を入れる）
+  app.myPick = { roundKey, charId: keep ? DRAW_DECISION.keep : DRAW_DECISION.pass };
+  render();
+
+  try {
+    await roomApi.submitDrawDecision(app.roomId, app.room, keep);
+  } catch (error) {
+    app.myPick = null;   // 送れなかったら、選ぶ画面に戻す
     showError(error);
   } finally {
     app.submitting = false;
@@ -727,12 +719,8 @@ function bindEvents() {
   $('btn-share').addEventListener('click', onShare);
   $('btn-qr').addEventListener('click', onShowQr);
   $('lobby-modes').addEventListener('click', onModeTap);
-  $('original-form').addEventListener('input', onOriginalInput);
-  $('original-form').addEventListener('change', onOriginalChange);
-  for (const id of Object.values(views.ORIGINAL_INPUTS)) {
-    // 入力欄をタップしたら中の数字を全部選ぶ（そのまま打てば、新しい数字に置き換わる）
-    $(id).addEventListener('focus', (event) => setTimeout(() => event.target.select(), 0));
-  }
+  $('original-options').addEventListener('click', onOriginalOptionTap);
+  $('input-hint').addEventListener('change', onHintToggle);
   $('btn-start').addEventListener('click', onStart);
   $('btn-leave-lobby').addEventListener('click', onLeaveLobby);
 
@@ -740,12 +728,14 @@ function bindEvents() {
   $('input-search').addEventListener('input', () => views.renderCharList(app));
   $('char-list').addEventListener('click', onCharTap);
   $('btn-decide').addEventListener('click', onDecide);
+  $('btn-keep').addEventListener('click', () => onDrawDecision(true));
+  $('btn-pass').addEventListener('click', () => onDrawDecision(false));
   $('btn-force').addEventListener('click', onForce);
   $('btn-leave-game').addEventListener('click', onLeaveGame);
 
   // ターン結果・最終結果
   $('btn-next').addEventListener('click', () => {
-    runTask($('btn-next'), () => roomApi.goNext(app.roomId, app.room));
+    runTask($('btn-next'), () => roomApi.goNext(app.roomId, app.room, app.characters));
   });
   $('btn-again').addEventListener('click', () => {
     runTask($('btn-again'), () => roomApi.backToLobby(app.roomId));

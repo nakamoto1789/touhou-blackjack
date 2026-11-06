@@ -6,9 +6,10 @@
 // ここで壊れていないか確認できます。
 // ============================================================
 
-import { GAME_MODES, DEFAULT_MODE, ORIGINAL_LIMITS } from '../js/config.js';
+import { GAME_MODES, DEFAULT_MODE } from '../js/config.js';
 import {
   RULE_KEYS,
+  DRAW_DECISION,
   isValidRules,
   isModeAvailable,
   listModes,
@@ -16,15 +17,17 @@ import {
   presetRules,
   rulesOf,
   withMode,
-  withOriginalRules,
+  originalSettingsOf,
+  withOriginalSettings,
+  isDrawRules,
   isCharacterUsable,
   listUsableCharacters,
   pointsFor,
   isBurst,
   isExactHit,
   rankSpanOf,
-  neededCharacters,
-  findRuleProblems,
+  hintRangeOf,
+  drawnCharIdOf,
   createGameState,
   createLobbyState,
   compatibilityOf,
@@ -89,8 +92,21 @@ function players(n) {
 /** そのモードが選ばれている、待機中の状態 */
 const lobbyOf = (modeId) => createLobbyState(0, modeId);
 
-/** オリジナルで、ホストがルールを決めた待機中の状態 */
-const originalLobby = (rules) => withOriginalRules(lobbyOf('original'), rules);
+/** オリジナルで、ホストが設定（数字の借り先・キャラの出し方）を選んだ待機中の状態 */
+const originalLobby = (settings) => withOriginalSettings(lobbyOf('original'), settings);
+
+/**
+ * 目標値より2以上大きいバーストを持つモードを、テストのあいだだけ足す。
+ * （「目標値を少し超えても残れる」ルールの計算を確かめるため）
+ */
+function withWideMode(body) {
+  GAME_MODES.wide = { name: '広いバースト', description: '', available: true, targetScore: 100, burstScore: 111, maxTurns: 5, minRank: 1, maxRank: null };
+  try {
+    body(lobbyOf('wide'));
+  } finally {
+    delete GAME_MODES.wide;
+  }
+}
 
 /** 合計点を直接指定した状態を作る（テストを短く書くため）。lobby を省くとハード */
 function stateWithTotals(totals, turn = 1, lobby = undefined) {
@@ -320,15 +336,16 @@ test('ぴったり賞: ちょうどの人がいなければ、だれにもつか
   assertEqual(result.ranking.some((p) => p.exact), false);
 });
 
-test('ぴったり賞: ノーマルは50ちょうど。オリジナルは決めた目標値ちょうど', () => {
+test('ぴったり賞: ノーマルは50ちょうど。バーストが目標値より大きいルールでも、ちょうどの人が勝者', () => {
   const normal = judgeResult(stateWithTotals({ A: 49, B: 50 }, 5, lobbyOf('normal')));
   assertEqual([normal.winners, normal.ranking[0].exact], [['B'], true]);
 
-  // バーストを目標値より大きくしたオリジナルでも、ちょうどの人は差0なので単独の勝者
-  const lobby = originalLobby({ targetScore: 100, burstScore: 111, maxTurns: 5, minRank: 1, maxRank: 225 });
-  const original = judgeResult(stateWithTotals({ A: 102, B: 100, C: 98 }, 5, lobby));
-  assertEqual(original.winners, ['B']);
-  assertEqual(original.ranking.map((p) => [p.uid, p.exact]), [['B', true], ['A', false], ['C', false]]);
+  // 目標100・バースト111：ちょうどの人は差0なので単独の勝者
+  withWideMode((lobby) => {
+    const wide = judgeResult(stateWithTotals({ A: 102, B: 100, C: 98 }, 5, lobby));
+    assertEqual(wide.winners, ['B']);
+    assertEqual(wide.ranking.map((p) => [p.uid, p.exact]), [['B', true], ['A', false], ['C', false]]);
+  });
 });
 
 // ---- ゲームモードのテスト ------------------------------------------
@@ -338,11 +355,11 @@ test('モード: ハード・ノーマル・オリジナルの3つで、どれ�
     [
       ['hard', 'ハード', '150点を目指す', true],
       ['normal', 'ノーマル', '50点を目指す', true],
-      ['original', 'オリジナル', '自分でルールを設定', true],
+      ['original', 'オリジナル', '出たキャラを持つか持たないか', true],
     ]
   );
-  // ルールを自分で決めるモードは、オリジナルだけ
-  assertEqual(listModes().map((mode) => mode.custom), [false, false, true]);
+  // 「持つ／持たない」で遊ぶモードは、オリジナルだけ
+  assertEqual(listModes().map((mode) => mode.draw), [false, false, true]);
 });
 
 test('モード: ハードは 全キャラクター・目標150・バースト151・5ターン', () => {
@@ -640,127 +657,192 @@ test('ノーマル: 5ターンで終了し、50に近い人が勝者', () => {
   assertEqual(judgeResult(state).winners, ['B']);
 });
 
-// ---- オリジナルのテスト（ホストがルールを決める）----------------------
-// 依頼の例：目標100・バースト101・7ターン・1〜100位
-const CUSTOM = { targetScore: 100, burstScore: 101, maxTurns: 7, minRank: 1, maxRank: 100 };
-
-test('オリジナル: 最初に入っている値は 目標100・バースト101・5ターン・全キャラクター', () => {
-  assertEqual(presetRules('original'), { targetScore: 100, burstScore: 101, maxTurns: 5, minRank: 1 });
-  assertEqual(lobbyOf('original').rules, presetRules('original'));
-});
-
-test('オリジナル: ホストが決めたルールが状態に入り、そのルールでゲームが進む', () => {
-  const lobby = originalLobby(CUSTOM);
-  assertEqual(lobby.rules, CUSTOM);
-  assertEqual(lobby.original, CUSTOM);
-
-  let state = createGameState(players(2), 1, lobby);
-  assertEqual([state.mode, modeOf(state).name], ['original', 'オリジナル']);
-  assertEqual(rulesOf(state), CUSTOM);
-
-  // 使えるのは1〜100位。101位は送られてきても無効
-  assertEqual(listUsableCharacters(rulesOf(state), characters).length, 100);
-  state = resolveTurn(state, { A: byRank(100).id, B: byRank(101).id }, charById);
-  assertEqual([state.scores.A.total, state.scores.A.out], [100, false], '100ちょうどはセーフ');
-  assertEqual(state.history.t1.B.outcome, 'invalid');
-
-  // 101点でバースト
-  state = resolveTurn(advance(state), { A: KOISHI.id, B: MARISA.id }, charById);
-  assertEqual([state.scores.A.total, state.scores.A.out], [101, true]);
-
-  // 7ターン制：5ターン目では終わらず、7ターン目で終わる
-  for (let turn = 3; turn <= 7; turn++) {
-    state = resolveTurn(advance(state), { B: MARISA.id }, charById);
-    assertEqual(isLastReveal(state), turn === 7, `${turn}ターン目`);
-  }
-  assertEqual(advance(state).status, 'finished');
-});
-
-test('オリジナル: ルールを決められるのは、オリジナルが選ばれている待機中だけ', () => {
-  assertEqual(withOriginalRules(lobbyOf('hard'), CUSTOM), undefined, 'ハードが選ばれているとき');
-  assertEqual(withOriginalRules(lobbyOf('normal'), CUSTOM), undefined, 'ノーマルが選ばれているとき');
-  assertEqual(withOriginalRules(createGameState(players(2), 1, originalLobby(CUSTOM)), { ...CUSTOM, targetScore: 5, burstScore: 6 }), undefined, 'ゲーム中');
-  assertEqual(withOriginalRules(lobbyOf('original'), { ...CUSTOM, burstScore: 100 }), undefined, '矛盾したルール');
-});
-
-test('オリジナル: 決めたルールは、ほかのモードに変えて戻しても、「もう一度」でも残る', () => {
-  const lobby = originalLobby(CUSTOM);
-  const toHard = withMode(lobby, 'hard');
-  assertEqual(toHard.rules, presetRules('hard'), 'ハードに変えると、ハードのルールになる');
-  assertEqual(withMode(toHard, 'original').rules, CUSTOM, 'オリジナルに戻すと、決めたルールに戻る');
-
-  // ゲームが終わって待機画面に戻るとき（room.js の backToLobby と同じ呼び方）
-  const finished = createGameState(players(2), 1, lobby);
-  const again = createLobbyState(finished.gameNo, finished.mode, finished.original);
-  assertEqual([again.mode, again.gameNo], ['original', 1]);
-  assertEqual(again.rules, CUSTOM);
-});
-
-test('オリジナル: 入力のチェック。依頼の例と、最初に入っている値は問題なし', () => {
-  assertEqual(findRuleProblems(CUSTOM, characters), []);
-  assertEqual(findRuleProblems({ ...presetRules('original'), maxRank: 225 }, characters), []);
-  assertEqual(findRuleProblems({ targetScore: 50, burstScore: 51, maxTurns: 5, minRank: 1, maxRank: 50 }, characters), []);
-});
-
-test('オリジナル: バーストする点数は、目標値より大きくないといけない', () => {
-  const count = (rules) => findRuleProblems({ ...CUSTOM, ...rules }, characters).length;
-  assertEqual(count({ burstScore: 101 }), 0, '目標値 + 1');
-  assertEqual(count({ burstScore: 120 }), 0, '目標値より大きければよい');
-  assertEqual(count({ burstScore: 100 }), 1, '目標値と同じ');
-  assertEqual(count({ burstScore: 99 }), 1, '目標値より小さい');
-  assertEqual(count({ burstScore: NaN }), 1, '数字でない');
-  assertEqual(isValidRules({ ...CUSTOM, burstScore: 100 }), false);
-});
-
-test('オリジナル: 目標値・ターン数・順位の範囲のチェック', () => {
-  const count = (rules) => findRuleProblems({ ...CUSTOM, ...rules }, characters).length;
-  assertEqual(count({ targetScore: 0, burstScore: 1 }) > 0, true, '目標値 0');
-  assertEqual(count({ targetScore: NaN }), 1, '目標値が数字でない');
-  assertEqual(count({ targetScore: ORIGINAL_LIMITS.maxTargetScore + 1, burstScore: ORIGINAL_LIMITS.maxTargetScore + 2 }) > 0, true, '目標値が大きすぎる');
-  assertEqual(count({ maxTurns: 0 }), 1, 'ターン数 0');
-  assertEqual(count({ maxTurns: ORIGINAL_LIMITS.maxTurns }), 0, 'ターン数の上限');
-  assertEqual(count({ maxTurns: ORIGINAL_LIMITS.maxTurns + 1 }), 1, 'ターン数が多すぎる');
-  assertEqual(count({ maxTurns: 2.5 }), 1, 'ターン数が小数');
-  assertEqual(count({ minRank: 0 }), 1, '開始が 0');
-  assertEqual(count({ maxRank: 226 }), 1, '終了がデータの最後の順位より大きい');
-  assertEqual(count({ maxRank: 225 }), 0, '終了がデータの最後の順位');
-  assertEqual(count({ minRank: 60, maxRank: 50 }), 1, '開始が終了より大きい');
-});
-
-test('オリジナル: 最後のターンまで選べるだけの人数が必要（5ターンなら9人）', () => {
-  assertEqual([neededCharacters(1), neededCharacters(5), neededCharacters(7)], [1, 9, 13]);
-  const five = { targetScore: 20, burstScore: 21, maxTurns: 5, minRank: 1 };
-  assertEqual(findRuleProblems({ ...five, maxRank: 8 }, characters).length, 1, '8人では足りない');
-  assertEqual(findRuleProblems({ ...five, maxRank: 9 }, characters).length, 0, '9人なら足りる');
-});
-
-test('オリジナル: 人数は実際に数える（同率順位で、その順位の人がいない範囲は0人）', () => {
-  // 195位が2人いるので、196位の人はいない
-  assertEqual(characters.filter((c) => c.rank === 196).length, 0);
-  const rules = { targetScore: 200, burstScore: 201, maxTurns: 1, minRank: 196, maxRank: 196 };
-  assertEqual(findRuleProblems(rules, characters).length, 1);
-  assertEqual(findRuleProblems({ ...rules, minRank: 195 }, characters).length, 0, '195〜196位なら2人');
-});
-
-test('オリジナル: 順位の開始が1でない範囲（10〜20位）も使える', () => {
+// ---- ルールの範囲・バーストのテスト（どのモードにも共通の計算）----------
+test('ルール: 順位の開始が1でない範囲（10〜20位）も使える', () => {
   const rules = { targetScore: 60, burstScore: 61, maxTurns: 3, minRank: 10, maxRank: 20 };
-  assertEqual(findRuleProblems(rules, characters), []);
   const list = listUsableCharacters(rules, sorted);
   assertEqual(list.length, 11);
   assertEqual(list.every((c) => c.rank >= 10 && c.rank <= 20), true);
   assertEqual([isCharacterUsable(rules, byRank(9)), isCharacterUsable(rules, byRank(10)), isCharacterUsable(rules, byRank(21))], [false, true, false]);
 });
 
-test('オリジナル: バーストする点数を目標値より2以上大きくすると、目標値を超えても残れる', () => {
-  const lobby = originalLobby({ targetScore: 100, burstScore: 111, maxTurns: 5, minRank: 1, maxRank: 225 });
-  const next = resolveTurn(stateWithTotals({ A: 100, B: 100 }, 1, lobby), { A: REMILIA.id, B: byRank(11).id }, charById);
-  assertEqual([next.scores.A.total, next.scores.A.out], [105, false], '105は、111未満なのでセーフ');
-  assertEqual([next.scores.B.total, next.scores.B.out], [111, true], '111でバースト');
+test('ルール: バーストする点数を目標値より2以上大きくすると、目標値を超えても残れる', () => {
+  withWideMode((lobby) => {
+    const next = resolveTurn(stateWithTotals({ A: 100, B: 100 }, 1, lobby), { A: REMILIA.id, B: byRank(11).id }, charById);
+    assertEqual([next.scores.A.total, next.scores.A.out], [105, false], '105は、111未満なのでセーフ');
+    assertEqual([next.scores.B.total, next.scores.B.out], [111, true], '111でバースト');
 
-  // 目標値にいちばん近い人が勝ち。98 と 102 は同じ差なので、どちらも勝者
-  const result = judgeResult(stateWithTotals({ A: 98, B: 105, C: 102, D: 111 }, 5, lobby));
-  assertEqual(result.winners, ['A', 'C']);
-  assertEqual(result.ranking.map((p) => p.diff), [2, 2, 5, null]);
+    // 目標値にいちばん近い人が勝ち。98 と 102 は同じ差なので、どちらも勝者
+    const result = judgeResult(stateWithTotals({ A: 98, B: 105, C: 102, D: 111 }, 5, lobby));
+    assertEqual(result.winners, ['A', 'C']);
+    assertEqual(result.ranking.map((p) => p.diff), [2, 2, 5, null]);
+  });
+});
+
+// ---- オリジナルのテスト（ランダムに出たキャラを持つ／持たない）----------
+const KEEP = DRAW_DECISION.keep;   // 持つ
+const PASS = DRAW_DECISION.pass;   // 持たない
+
+/** テスト用の「乱数」：渡した数（0以上1未満）を順番にくり返し返す。結果が毎回同じになる */
+function fixedRandom(...values) {
+  let index = 0;
+  return () => values[index++ % values.length];
+}
+/** いつも候補の先頭を選ぶ「乱数」 */
+const first = () => 0;
+
+/** そのターンに出たキャラを、テストしやすいように直接決める */
+function setDraws(state, draws) {
+  return { ...state, draws: { ...(state.draws || {}), [`t${state.turn}`]: draws } };
+}
+
+/** オリジナルのゲームを始める（キャラクターデータを渡すと、1ターン目のキャラが出る） */
+function startOriginal(settings, n = 2, random = first) {
+  return createGameState(players(n), 1, originalLobby(settings), characters, random);
+}
+
+test('オリジナル: 最初は「ハードの設定・ランダムキャラクター」', () => {
+  assertEqual(originalSettingsOf(lobbyOf('original')), { base: 'hard', drawStyle: 'random' });
+  assertEqual(presetRules('original'), {
+    targetScore: 150, burstScore: 151, maxTurns: 5, minRank: 1, pickStyle: 'draw', drawStyle: 'random', hintBand: 50,
+  });
+  assertEqual(lobbyOf('original').rules, presetRules('original'));
+  assertEqual(isDrawRules(presetRules('original')), true);
+  assertEqual([isDrawRules(presetRules('hard')), isDrawRules(presetRules('normal'))], [false, false], 'ハード・ノーマルは今までどおり');
+});
+
+test('オリジナル: 数字はハードかノーマルの設定を借りる。ヒントは50位ごと／10位ごと', () => {
+  const lobby = originalLobby({ base: 'normal', drawStyle: 'shared' });
+  assertEqual(lobby.original, { base: 'normal', drawStyle: 'shared' });
+  assertEqual(lobby.rules, {
+    targetScore: 50, burstScore: 51, maxTurns: 5, minRank: 1, maxRank: 50, pickStyle: 'draw', drawStyle: 'shared', hintBand: 10,
+  });
+  assertEqual(originalLobby({ base: 'hard', drawStyle: 'shared' }).rules.hintBand, 50);
+});
+
+test('オリジナル: 設定を変えられるのは、オリジナルが選ばれている待機中だけ。知らない値は不可', () => {
+  const ok = { base: 'normal', drawStyle: 'random' };
+  assertEqual(withOriginalSettings(lobbyOf('hard'), ok), undefined, 'ハードが選ばれているとき');
+  assertEqual(withOriginalSettings(startOriginal(ok), ok), undefined, 'ゲーム中');
+  assertEqual(withOriginalSettings(lobbyOf('original'), { base: 'original', drawStyle: 'random' }), undefined, '借り先にオリジナル');
+  assertEqual(withOriginalSettings(lobbyOf('original'), { base: 'normal', drawStyle: 'magic' }), undefined, '知らない出し方');
+});
+
+test('オリジナル: 選んだ設定は、ほかのモードに変えて戻しても、「もう一度」でも残る', () => {
+  const lobby = originalLobby({ base: 'normal', drawStyle: 'shared' });
+  const toHard = withMode(lobby, 'hard');
+  assertEqual(toHard.rules, presetRules('hard'), 'ハードに変えると、ハードのルールになる');
+  assertEqual(withMode(toHard, 'original').rules, lobby.rules, 'オリジナルに戻すと、選んだ設定に戻る');
+
+  // ゲームが終わって待機画面に戻るとき（room.js の backToLobby と同じ呼び方）
+  const game = createGameState(players(2), 1, lobby, characters);
+  const again = createLobbyState(game.gameNo, game.mode, game.original);
+  assertEqual([again.mode, again.rules], ['original', lobby.rules]);
+});
+
+test('オリジナル: 前のバージョンの「数字を入力する」オリジナルの記録は、最初の設定として扱う', () => {
+  const old = { targetScore: 100, burstScore: 101, maxTurns: 7, minRank: 1, maxRank: 100 };
+  const lobby = createLobbyState(2, 'original', old);
+  assertEqual(originalSettingsOf(lobby), { base: 'hard', drawStyle: 'random' });
+  assertEqual(lobby.rules, presetRules('original'));
+  assertEqual(originalSettingsOf({ status: 'lobby', mode: 'original', original: old }), { base: 'hard', drawStyle: 'random' });
+});
+
+test('オリジナル: ゲーム開始で1ターン目のキャラが出る。ランダムキャラクターは人ごとに違う', () => {
+  const state = startOriginal({ base: 'hard', drawStyle: 'random' }, 3, fixedRandom(0, 0.5, 0.999));
+  const drawn = ['A', 'B', 'C'].map((uid) => drawnCharIdOf(state, uid));
+  assertEqual(drawn.every((id) => charById.has(id)), true, '本物のキャラクター');
+  assertEqual(new Set(drawn).size, 3, '3人とも別のキャラ');
+  // キャラクターデータを渡し忘れたら、開始できない（キャラを出せないため）
+  assertThrows(() => createGameState(players(2), 1, originalLobby({ base: 'hard', drawStyle: 'random' })));
+});
+
+test('オリジナル: 固定キャラクターは、全員に同じキャラが出る', () => {
+  const state = startOriginal({ base: 'hard', drawStyle: 'shared' }, 3, fixedRandom(0.3, 0.7, 0.9));
+  const drawn = ['A', 'B', 'C'].map((uid) => drawnCharIdOf(state, uid));
+  assertEqual(new Set(drawn).size, 1);
+});
+
+test('オリジナル: ノーマルの設定では、1〜50位のキャラだけが出る', () => {
+  // 本物の乱数で5人・5ターン。何度やっても50位以内だけ
+  let state = startOriginal({ base: 'normal', drawStyle: 'random' }, 5, Math.random);
+  for (let turn = 1; turn <= 5; turn++) {
+    const ranks = 'ABCDE'.split('').map((uid) => charById.get(drawnCharIdOf(state, uid)).rank);
+    assertEqual(ranks.every((rank) => rank >= 1 && rank <= 50), true, `${turn}ターン目 ${ranks}`);
+    state = resolveTurn(state, { A: PASS, B: PASS, C: PASS, D: PASS, E: PASS }, charById);
+    if (turn < 5) state = advance(state, characters);
+  }
+});
+
+test('オリジナル: 同じキャラは2回出ない（ランダムはその人に、固定はゲームの中で）', () => {
+  for (const drawStyle of ['random', 'shared']) {
+    // いつも候補の先頭を選ぶ「乱数」でも、一度出たキャラは候補から外れる
+    let state = startOriginal({ base: 'hard', drawStyle }, 2, first);
+    const seen = { A: [], B: [] };
+    for (let turn = 1; turn <= 5; turn++) {
+      for (const uid of ['A', 'B']) seen[uid].push(drawnCharIdOf(state, uid));
+      state = resolveTurn(state, { A: PASS, B: PASS }, charById);
+      if (turn < 5) state = advance(state, characters, first);
+    }
+    assertEqual([new Set(seen.A).size, new Set(seen.B).size], [5, 5], drawStyle);
+  }
+});
+
+test('オリジナル: 持つと順位が加点。持たないと +0（見送り）。決めなかった人も +0', () => {
+  let state = setDraws(startOriginal({ base: 'hard', drawStyle: 'random' }, 3), { A: REIMU.id, B: MARISA.id, C: KOISHI.id });
+  state = resolveTurn(state, { A: KEEP, B: PASS }, charById);
+  const t1 = state.history.t1;
+  assertEqual([state.scores.A.total, t1.A.outcome, t1.A.gained, t1.A.charId], [3, 'ok', 3, REIMU.id], '持つ');
+  assertEqual([state.scores.B.total, t1.B.outcome, t1.B.charId], [0, 'pass', MARISA.id], '見送っても、出たキャラは記録する');
+  assertEqual([state.scores.C.total, t1.C.outcome, t1.C.charId], [0, 'none', KOISHI.id], '決めなかった');
+});
+
+test('オリジナル: 同じキャラを何人が持っても、全員に加点される（被りの +0 と使用禁止はない）', () => {
+  let state = setDraws(startOriginal({ base: 'hard', drawStyle: 'shared' }, 3), { A: REMILIA.id, B: REMILIA.id, C: REMILIA.id });
+  state = resolveTurn(state, { A: KEEP, B: KEEP, C: PASS }, charById);
+  assertEqual([state.scores.A.total, state.scores.B.total, state.scores.C.total], [5, 5, 0]);
+  assertEqual([state.history.t1.A.outcome, state.history.t1.B.outcome], ['ok', 'ok']);
+  assertEqual(isBanned(state, REMILIA.id), false);
+});
+
+test('オリジナル: 持ってバーストする点数以上になったらバースト。見送ればバーストしない', () => {
+  let state = startOriginal({ base: 'normal', drawStyle: 'random' });
+  state.scores.A.total = 45;
+  state.scores.B.total = 45;
+  state = setDraws(state, { A: byRank(6).id, B: byRank(6).id });
+  state = resolveTurn(state, { A: KEEP, B: PASS }, charById);
+  assertEqual([state.scores.A.total, state.scores.A.out], [51, true], '51でバースト');
+  assertEqual([state.scores.B.total, state.scores.B.out], [45, false]);
+
+  // バーストした人には、次のターンからキャラが出ない
+  const next = advance(state, characters);
+  assertEqual([drawnCharIdOf(next, 'A'), charById.has(drawnCharIdOf(next, 'B'))], [null, true]);
+});
+
+test('オリジナル: 5ターンで終了し、目標値に近い人が勝者（ぴったり賞もそのまま）', () => {
+  // ノーマルの設定：A は 1+2+3+4+40 = 50（ぴったり）、B は 10 を1回だけ持つ
+  let state = startOriginal({ base: 'normal', drawStyle: 'random' });
+  [1, 2, 3, 4, 40].forEach((rank, index) => {
+    if (index > 0) state = advance(state, characters);
+    state = setDraws(state, { A: byRank(rank).id, B: byRank(10).id });
+    state = resolveTurn(state, { A: KEEP, B: index === 0 ? KEEP : PASS }, charById);
+  });
+  assertEqual(isLastReveal(state), true);
+  const finished = advance(state, characters);
+  assertEqual(finished.status, 'finished');
+  const result = judgeResult(finished);
+  assertEqual([result.winners, result.ranking[0].total, result.ranking[0].exact], [['A'], 50, true]);
+});
+
+test('ヒント: ハードの設定は50位ごと、ノーマルの設定は10位ごとの範囲', () => {
+  const hard = presetRules('original');
+  assertEqual(hintRangeOf(hard, 1, characters), { from: 1, to: 50 });
+  assertEqual(hintRangeOf(hard, 50, characters), { from: 1, to: 50 });
+  assertEqual(hintRangeOf(hard, 51, characters), { from: 51, to: 100 });
+  assertEqual(hintRangeOf(hard, 210, characters), { from: 201, to: 225 }, '最後はデータの最後の順位まで');
+  const normal = originalLobby({ base: 'normal', drawStyle: 'random' }).rules;
+  assertEqual(hintRangeOf(normal, 7, characters), { from: 1, to: 10 });
+  assertEqual(hintRangeOf(normal, 50, characters), { from: 41, to: 50 });
 });
 
 // ---- バージョンがちがう画面への対応のテスト --------------------------
@@ -768,7 +850,15 @@ test('バージョン: 待機中はいつも扱える。ゲーム中は、ルー
   assertEqual(compatibilityOf(lobbyOf('hard')), 'ok');
   assertEqual(compatibilityOf({ status: 'lobby', gameNo: 0 }), 'ok', '古い形の待機中');
   assertEqual(compatibilityOf(createGameState(players(2), 1, lobbyOf('normal'))), 'ok');
-  assertEqual(compatibilityOf(createGameState(players(2), 1, originalLobby(CUSTOM))), 'ok');
+  assertEqual(compatibilityOf(startOriginal({ base: 'normal', drawStyle: 'shared' })), 'ok');
+});
+
+test('バージョン: 前のバージョンの画面で始めた「数字を入力する」オリジナル → 続けられない', () => {
+  const old = {
+    status: 'playing', gameNo: 1, mode: 'original', turn: 1, phase: 'select', scores: {},
+    rules: { targetScore: 100, burstScore: 101, maxTurns: 7, minRank: 1, maxRank: 100 },
+  };
+  assertEqual(compatibilityOf(old), 'broken');
 });
 
 test('バージョン: 知らないモードや、知らないルールの項目があるゲーム → 再読み込みを求める', () => {

@@ -40,7 +40,7 @@ import {
   advance,
   judgeResult,
 } from '../js/game-logic.js';
-import { kanaRowOf, compareKana, prepareCharacters, searchCharacters, parseWholeNumber } from '../js/util.js';
+import { kanaRowOf, compareKana, prepareCharacters, searchCharacters, parseWholeNumber, splitDisplayName } from '../js/util.js';
 
 // ---- とても小さなテスト用の道具 ------------------------------------
 const results = [];
@@ -886,6 +886,47 @@ test('入力: 数字だけの入力を整数にする（全角の数字も読め
   assertEqual(parseWholeNumber(225), 225, '数値のまま渡しても同じ');
   for (const text of ['', '1.5', '-3', 'abc', '1e3', '12点']) {
     assertEqual(Number.isNaN(parseWholeNumber(text)), true, `「${text}」`);
+  }
+});
+
+test('名前の表示: 空白・「・」の後ろだけで区切る（言葉の途中で改行しないため）', () => {
+  assertEqual(splitDisplayName('霧雨 魔理沙').main, ['霧雨 ', '魔理沙']);
+  assertEqual(splitDisplayName('フランドール・スカーレット').main, ['フランドール・', 'スカーレット']);
+  assertEqual(splitDisplayName('名無しの本読み妖怪').main, ['名無しの本読み妖怪'], '区切りがなければ1つ');
+  assertEqual(splitDisplayName('チルノ').note, [], '（…）がなければ補足なし');
+});
+
+test('名前の表示: とても長いかたまり（10文字分以上）だけ、漢字・英数字→カタカナの変わり目でも区切る', () => {
+  assertEqual(splitDisplayName('蓬莱人形ジャケットイラストの娘').main, ['蓬莱人形', 'ジャケットイラストの娘']);
+  assertEqual(splitDisplayName('核熱造神ヒソウテンソク').main, ['核熱造神', 'ヒソウテンソク']);
+  assertEqual(splitDisplayName('C62サークルカットの娘').main, ['C62', 'サークルカットの娘']);
+  // 短い名前は区切らない（「大／ナマズ」「二／ッ岩」のような変な改行を防ぐ）
+  assertEqual(splitDisplayName('大ナマズ').main, ['大ナマズ']);
+  assertEqual(splitDisplayName('二ッ岩 マミゾウ').main, ['二ッ岩 ', 'マミゾウ']);
+  assertEqual(splitDisplayName('旧作名無し中ボス').main, ['旧作名無し中ボス']);
+});
+
+test('名前の表示: 最後の（…）は補足として分け、中は「、」「・」・空白の後ろで区切る', () => {
+  const { main, note } = splitDisplayName('妖精（メイド妖精・ひまわり妖精 他）');
+  assertEqual(main, ['妖精']);
+  assertEqual(note, ['（メイド妖精・', 'ひまわり妖精 ', '他）']);
+  assertEqual(splitDisplayName('里の人間（文花帖、求聞史紀、鈴奈庵などで登場した人間）').note,
+    ['（文花帖、', '求聞史紀、', '鈴奈庵などで登場した人間）']);
+});
+
+test('名前の表示: 幅は、いちばん長いかたまり（全角1文字＝1、半角＝0.6）', () => {
+  assertEqual(splitDisplayName('フランドール・スカーレット').width, 7);
+  assertEqual(splitDisplayName('霧雨 魔理沙').width, 3, '区切りの空白は数えない');
+  assertEqual(splitDisplayName('C62サークルカットの娘').width, 9, '「C62」と「サークルカットの娘」に分けたあと');
+  assertEqual(splitDisplayName('名無しの本読み妖怪').width, 9);
+  assertEqual(splitDisplayName('UFO（赤・青・緑、その他）').width, 1.8, '補足は数えない');
+});
+
+test('名前の表示: 全225人で、かたまりをつなぐと元の名前に戻る（文字が消えない）', () => {
+  for (const character of characters) {
+    const { main, note } = splitDisplayName(character.name);
+    assertEqual(main.join('') + note.join(''), character.name);
+    assertEqual(main.length > 0, true, `${character.name} の名前部分が空`);
   }
 });
 

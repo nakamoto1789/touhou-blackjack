@@ -25,7 +25,7 @@
 // ============================================================
 
 import { GAME_MODES, MIN_PLAYERS, MAX_PLAYERS, VOTE_NAME } from './config.js';
-import { $, escapeHtml, normalizeText, searchCharacters } from './util.js';
+import { $, escapeHtml, normalizeText, searchCharacters, splitDisplayName } from './util.js';
 import {
   DRAW_DECISION,
   rulesOf,
@@ -528,7 +528,7 @@ function renderWaiting(app) {
     mine = character && decisionText
       ? `
         <p class="waiting-label">あなたの選択（決定済み）</p>
-        <p class="waiting-char">${escapeHtml(character.name)}</p>
+        <p class="waiting-char">${nameHtml(character.name)}</p>
         <p class="waiting-decision is-${decision === DRAW_DECISION.keep ? 'keep' : 'pass'}">${decisionText}</p>
         <p class="waiting-note">順位は、全員が決めると公開されます</p>`
       : '<p class="waiting-label">あなたの選択（決定済み）</p><p class="waiting-text">読み込み中…</p>';
@@ -538,7 +538,7 @@ function renderWaiting(app) {
     mine = character
       ? `
         <p class="waiting-label">あなたの選択（決定済み）</p>
-        <p class="waiting-char">${escapeHtml(character.name)}</p>
+        <p class="waiting-char">${nameHtml(character.name)}</p>
         <p class="waiting-note">順位とポイントは、全員が決定すると公開されます<br>※ほかの人と重複したら +0 になります</p>`
       : '<p class="waiting-label">あなたの選択（決定済み）</p><p class="waiting-text">読み込み中…</p>';
   }
@@ -624,7 +624,7 @@ function renderDrawCard(app) {
 
   $('draw-label').textContent =
     rules.drawStyle === 'shared' ? 'このターンのキャラクター（全員同じ）' : 'あなたに出たキャラクター';
-  $('draw-name').textContent = character ? character.name : '読み込み中…';
+  $('draw-name').innerHTML = nameHtml(character ? character.name : '読み込み中…');
 
   const hint = $('draw-hint');
   hint.hidden = !(app.showHint && character);
@@ -634,6 +634,28 @@ function renderDrawCard(app) {
   }
   $('btn-keep').disabled = !character;
   $('btn-pass').disabled = !character;
+}
+
+/**
+ * キャラ名を、言葉の途中で改行しない横書きの HTML にする（出たキャラの札と、決定後の表示で使う）。
+ *   ・かたまり（util.js の splitDisplayName）ごとに <span> で包み、あいだに <wbr>（ここなら改行してよい印）を置く
+ *     「霧雨 魔理沙」の空白は <span> の外に出す（中に入れると、かたまりの端の空白として消えてしまうため）
+ *   ・最後の「（…）」は、小さい字で次の行に出す
+ *   ・--name-width に「いちばん長いかたまりの幅」を入れる。style.css が、それが1行に収まる文字の大きさにする
+ */
+function nameHtml(name) {
+  const { main, note, width } = splitDisplayName(name);
+  const chunks = (list) =>
+    list
+      .map((chunk) => {
+        const word = chunk.trimEnd();
+        return `<span class="name-chunk">${escapeHtml(word)}</span>${word === chunk ? '<wbr>' : ' '}`;
+      })
+      .join('');
+  return (
+    `<span class="name-main" style="--name-width: ${width}">${chunks(main)}</span>` +
+    (note.length > 0 ? `<span class="name-note">${chunks(note)}</span>` : '')
+  );
 }
 
 // ============================================================

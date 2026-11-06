@@ -46,6 +46,51 @@ export function parseWholeNumber(text) {
   return /^\d{1,9}$/.test(digits) ? Number(digits) : NaN;
 }
 
+// ---- キャラクター名の表示（言葉の途中で改行しないように）-------------
+
+/** 改行してよい区切り。この文字の「後ろ」でだけ改行する（空白・「・」・「、」） */
+const NAME_CHUNK = /[^ ・、]+[ ・、]*|[ ・、]+/g;
+
+/** これ以上長いかたまり（全角10文字分）は、漢字・英数字からカタカナに変わる所でも区切る */
+const LONG_CHUNK = 10;
+
+/**
+ * キャラクター名を、画面で改行してよい「かたまり」に分ける。
+ * ブラウザに任せると「フランドール・スカーレッ／ト」のように言葉の途中で改行されるので、
+ * 改行してよい所をこちらで決める。
+ *   ・名前は、空白・「・」・「、」の後ろだけで区切る
+ *       「霧雨 魔理沙」→ ['霧雨 ', '魔理沙']、「フランドール・スカーレット」→ ['フランドール・', 'スカーレット']
+ *   ・区切りがなく、とても長い名前（全角10文字分以上）だけは、漢字・英数字からカタカナに変わる所でも区切る
+ *       「蓬莱人形ジャケットイラストの娘」→ ['蓬莱人形', 'ジャケットイラストの娘']
+ *       （短い名前は区切らない。「大ナマズ」が「大／ナマズ」になるのを防ぐため）
+ *   ・最後の「（…）」は補足（note）として分ける（画面では小さい字で次の行に出す）
+ *       「妖精（メイド妖精・ひまわり妖精 他）」→ main ['妖精']、note ['（メイド妖精・', 'ひまわり妖精 ', '他）']
+ *   ・width は main のいちばん長いかたまりの幅（全角1文字＝1、半角＝0.6）。
+ *     画面では、このかたまりが1行に収まる大きさの文字にする
+ */
+export function splitDisplayName(name) {
+  const text = String(name ?? '');
+  const match = /^(.+?)(（[^（）]*）)$/.exec(text);
+  const toChunks = (part) => part.match(NAME_CHUNK) || [];
+  const main = toChunks(match ? match[1] : text).flatMap((chunk) =>
+    textWidth(chunk) >= LONG_CHUNK
+      ? chunk.replace(/([一-龯々0-9A-Za-z])(?=[ァ-ヺ])/g, '$1\n').split('\n')   // 変わり目に印を入れて分ける
+      : [chunk]
+  );
+  return {
+    main,
+    note: toChunks(match ? match[2] : ''),
+    width: Math.max(1, ...main.map(textWidth)),
+  };
+}
+
+/** 文字列の見た目の幅（全角1文字＝1、半角の英数字＝0.6）。区切りの空白は数えない */
+function textWidth(text) {
+  let width = 0;
+  for (const ch of text.trim()) width += ch.codePointAt(0) < 0x2e80 ? 0.6 : 1;
+  return Math.round(width * 10) / 10;   // 0.6 を足していくと出る小さな誤差を消す
+}
+
 // ---- キャラクター一覧の準備（50音順と検索）--------------------------
 
 /** 50音の「行」。左が見出し、右がその行に入るひらがな（濁点つき・小さい字も同じ行） */

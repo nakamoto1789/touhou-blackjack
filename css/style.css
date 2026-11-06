@@ -1416,17 +1416,18 @@ body[data-screen="game"] .toast {
 .draw .picker-hint {
   padding: 12px 0 0;
 }
-/* 出たキャラのかるた札。名前は縦書きで大きく出す */
+/* 出たキャラのかるた札。名前は横書きで大きく出す */
 .draw-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  width: min(220px, 70%);
-  min-height: 300px;
+  width: min(300px, 100%);
+  min-height: 260px;
   margin: 6px auto 8px;
-  padding: 24px 16px 20px;
+  padding: 24px 20px 20px;
   text-align: center;
+  container-type: inline-size;   /* 中の名前の大きさを、札の幅から決めるため（下の 100cqi） */
   border: 1px solid var(--line);
   /* 内側の朱色の枠と、後ろにもう1枚重なっているように見える札を、影を重ねて描いている */
   box-shadow:
@@ -1445,20 +1446,53 @@ body[data-screen="game"] .toast {
   letter-spacing: 0.15em;
   color: var(--red);
 }
-/* 縦書きの名前。長い名前は左の列に折り返す */
+/*
+ * 横書きの名前。改行するのは「・」や空白の後ろだけ（views.js の nameHtml）。
+ * 「フランドール・／スカーレット」のように、長い名前は区切りで2行になる
+ */
 .draw-name {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  inline-size: 6.4em;
+  gap: 8px;
   font-family: var(--font-serif);
-  font-size: clamp(30px, 9vw, 38px);
   font-weight: 800;
-  line-height: 1.2;
-  letter-spacing: 0.04em;
+  line-height: 1.25;
   color: var(--ink);
-  writing-mode: vertical-rl;
+}
+.draw-name .name-main {
+  font-size: 30px;   /* 下の計算に対応していない古いブラウザでは、この大きさ */
+  letter-spacing: 0.04em;
+}
+@supports (width: 1cqi) {
+  /*
+   * 100cqi は札の中身の幅。いちばん長いかたまり（--name-width 文字分）が1行に収まる大きさにする。
+   * 短い名前は最大 36px、とても長いかたまり（「蓬莱人形ジャケットイラストの娘」など）は小さくなる
+   */
+  .draw-name .name-main {
+    font-size: clamp(14px, 100cqi / (var(--name-width) * 1.08), 36px);
+  }
+}
+
+/* キャラ名のかたまり（views.js の nameHtml）。かたまりの途中では改行しない */
+.name-main,
+.name-note {
+  display: block;
+}
+.name-chunk {
+  display: inline-block;
+  max-width: 100%;   /* 1つのかたまりが行より長いときだけ、その中で改行する（はみ出さないため） */
+}
+/* 名前の後ろの「（…）」。小さい字で次の行に出す */
+.name-note {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0;
+  color: var(--ink-2);
 }
 /* 初心者のヒント（順位の大まかな範囲） */
 .draw-hint {
@@ -1502,6 +1536,7 @@ body[data-screen="game"] .toast {
 .waiting-mine {
   text-align: center;
   box-shadow: inset 3px 0 0 var(--red);
+  container-type: inline-size;   /* 中の名前の大きさを、カードの幅から決めるため */
 }
 .waiting-mine p {
   margin: 0;
@@ -1518,6 +1553,15 @@ body[data-screen="game"] .toast {
   font-weight: 800;
   line-height: 1.3;
   color: var(--ink);
+}
+@supports (width: 1cqi) {
+  /* 出たキャラの札と同じ考え方で、長いかたまりも1行に収める（最大は今までどおり 28px） */
+  .waiting-char .name-main {
+    font-size: clamp(14px, 100cqi / (var(--name-width) * 1.08), 28px);
+  }
+}
+.waiting-char .name-note {
+  margin-top: 2px;
 }
 .waiting-text {
   font-size: 14px;

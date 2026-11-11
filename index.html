@@ -79,6 +79,7 @@
       <footer class="fan-notice">
         <p>※本ゲームは東方Projectのファン制作（非公式）ゲームです。<br>原作者・公式とは関係ありません。</p>
         <p>順位は「第22回東方Project人気投票」の結果を利用しています。<br>東方Project © 上海アリス幻樂団</p>
+        <p>効果音：効果音ラボ</p>
       </footer>
     </section>
 
@@ -175,6 +176,25 @@
         <p id="lobby-mode-note" class="mode-note"></p>
       </div>
 
+      <!--
+        効果音の大きさ（一人ひとりが自分で決める。このスマホにだけ保存される）。
+        同じつまみがゲーム中のメニューにもある。どちらも main.js が sound.js とつなぐ（.volume がついた所すべて）
+      -->
+      <div class="section">
+        <h3 class="section-title">効果音 <small class="section-note">このスマホだけの設定</small></h3>
+        <div class="volume">
+          <div class="volume-row">
+            <button class="volume-mute" type="button" aria-label="効果音を消す">
+              <svg class="icon-sound-on" viewBox="0 0 24 24" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+              <svg class="icon-sound-off" viewBox="0 0 24 24" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+            </button>
+            <input class="volume-slider" type="range" min="0" max="100" step="5" aria-label="効果音の大きさ">
+            <output class="volume-value">70</output>
+          </div>
+          <p class="volume-hint">指を離すと、いまの大きさで1回鳴ります。</p>
+        </div>
+      </div>
+
       <p id="lobby-message" class="hint"></p>
       <button id="btn-start" class="btn btn-primary" type="button" hidden>ゲーム開始</button>
       <!-- ルームから退出して、最初の画面（トップ画面）に戻る -->
@@ -259,6 +279,11 @@
         <h2 class="result-heading">結果発表</h2>
         <p id="result-mode" class="result-mode"></p>
       </div>
+      <!-- ドラムロールのあいだだけ出す札（main.js が #screen-result に is-drumroll をつけているあいだ） -->
+      <div class="winner-card result-drumroll" aria-hidden="true">
+        <p class="winner-label">勝者は</p>
+        <p class="drumroll-dots"><span>…</span><span>…</span><span>…</span></p>
+      </div>
       <div id="result-winner" class="winner-card"></div>
       <ol id="result-ranking" class="ranking"></ol>
 
@@ -303,10 +328,23 @@
   <!-- ゲーム中のメニュー -->
   <dialog id="dialog-menu" class="dialog">
     <h3 class="dialog-title">メニュー</h3>
-    <p class="dialog-message">
-      ルームID：<strong id="menu-room-id"></strong><br>
-      モード：<strong id="menu-mode"></strong>
-    </p>
+    <!-- .dialog-message は改行をそのまま出す設定なので、<br> と改行が二重にならないよう1行に書く -->
+    <p class="dialog-message">ルームID：<strong id="menu-room-id"></strong><br>モード：<strong id="menu-mode"></strong></p>
+    <!-- 効果音の大きさ（待機画面のつまみと同じもの。どちらで変えても、両方に反映される） -->
+    <div class="menu-sound">
+      <p class="option-title">効果音</p>
+      <div class="volume">
+        <div class="volume-row">
+          <button class="volume-mute" type="button" aria-label="効果音を消す">
+            <svg class="icon-sound-on" viewBox="0 0 24 24" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+            <svg class="icon-sound-off" viewBox="0 0 24 24" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+          </button>
+          <input class="volume-slider" type="range" min="0" max="100" step="5" aria-label="効果音の大きさ">
+          <output class="volume-value">70</output>
+        </div>
+        <p class="volume-hint">このスマホだけの設定です。離すと試しに鳴ります。</p>
+      </div>
+    </div>
     <div class="stack">
       <button class="btn btn-secondary" type="button" data-action="rules">遊び方を見る</button>
       <button id="btn-leave-game" class="btn btn-secondary" type="button">ゲームから抜ける</button>

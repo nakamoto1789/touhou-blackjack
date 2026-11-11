@@ -7,11 +7,19 @@
 //   3. 同期：ルームのデータが変わるたびに、画面を描き直す
 //   4. 操作：ボタンが押されたら room.js の操作を呼ぶ
 //   5. 自動処理：全員が決定したら、結果を計算する
+//   6. 効果音：画面が切り替わった瞬間に、場面に合った音を鳴らす
 //
-// 画面の描画そのものは views.js、ルールの計算は game-logic.js にあります。
+// 画面の描画そのものは views.js、ルールの計算は game-logic.js、音を鳴らす仕組みは sound.js にあります。
 // ============================================================
 
-import { CHARACTERS_URL, ROOM_ID_LENGTH, NAME_MAX_LENGTH, DEFAULT_PLAYER_NAME } from './config.js';
+import {
+  CHARACTERS_URL,
+  ROOM_ID_LENGTH,
+  NAME_MAX_LENGTH,
+  DEFAULT_PLAYER_NAME,
+  DRUMROLL_MS,
+  DEFAULT_VOLUME,
+} from './config.js';
 import {
   $,
   escapeHtml,
@@ -23,14 +31,20 @@ import {
 } from './util.js';
 import { initBackend, backend, isDemoMode } from './backend.js';
 import { makeQrSvg } from './qr.js';
+import { initSound, playSound, getVolume, setVolume } from './sound.js';
 import {
   DRAW_DECISION,
   modeOf,
+  rulesOf,
   originalSettingsOf,
   compatibilityOf,
   roundKeyOf,
+  turnKey,
   allActiveSubmitted,
   isBanned,
+  isExactHit,
+  isLastReveal,
+  judgeResult,
   listParticipants,
 } from './game-logic.js';
 import * as roomApi from './room.js';
@@ -57,6 +71,9 @@ const app = {
   revealRoundKey: null,  // 結果公開の演出を表示済みのラウンド
   submitting: false,     // 決定を送信中か
   showHint: false,       // オリジナルで初心者のヒントを表示するか（この端末だけの設定）
+  view: null,            // 直前に表示した場面（'lobby'、'g1t2:select' など。効果音を鳴らす瞬間を見分けるため）
+  drumrollUntil: 0,      // 最終結果のドラムロールが終わる時刻（それまで勝者を伏せる）
+  drumroll: null,        // 鳴っているドラムロール（止めるため）
 };
 
 // ============================================================
@@ -78,6 +95,9 @@ async function start() {
 
   $('banner-demo').hidden = !isDemoMode;
   app.showHint = backend.storage.getItem(STORAGE_HINT) === '1';
+  initSound(backend.storage);
+  if (getVolume() > 0) volumeBeforeMute = getVolume();
+  views.renderVolume(getVolume());
   views.renderTop();
   watchConnection();
   await openFirstScreen();
@@ -154,6 +174,7 @@ async function canReturnTo(roomId) {
 function enterRoom(roomId) {
   app.roomId = roomId;
   app.room = null;
+  app.view = null;   // 入った直後の画面では効果音を鳴らさない（リロードで戻ったときなど）
   backend.storage.setItem(STORAGE_ROOM, roomId);
   backend.startPresence(roomId);
   app.stopWatching = backend.watchRoom(roomId, onRoomChange, (error) => {
@@ -165,6 +186,7 @@ function enterRoom(roomId) {
 /** 自分の画面をトップに戻す（データベースは書き換えない） */
 function exitRoom(message) {
   if (app.stopWatching) app.stopWatching();
+  stopDrumroll();
   Object.assign(app, {
     roomId: null,
     room: null,
@@ -175,6 +197,8 @@ function exitRoom(message) {
     pickerRoundKey: null,
     revealRoundKey: null,
     submitting: false,
+    view: null,
+    drumrollUntil: 0,
   });
   backend.storage.removeItem(STORAGE_ROOM);
 
@@ -279,6 +303,12 @@ function render() {
   if (!app.room) return;
   const state = app.room.state;
 
+  // 効果音：直前に表示していた場面と比べて、切り替わった瞬間なら音を鳴らす
+  const view = viewKeyOf(state);
+  const previousView = app.view;
+  app.view = view;
+  if (previousView !== null && previousView !== view) playSceneSound(previousView, state);
+
   // ゲームが始まったら、待機画面で開いていた招待用のQRコードは閉じる
   if (state.status !== 'lobby' && $('dialog-qr').open) $('dialog-qr').close();
 
@@ -291,6 +321,8 @@ function render() {
   if (state.status === 'finished') {
     showScreen('result');
     views.renderResult(app);
+    // ドラムロールのあいだは、勝者と順位を伏せておく（style.css の .is-drumroll）
+    $('screen-result').classList.toggle('is-drumroll', Date.now() < app.drumrollUntil);
     return;
   }
 
@@ -384,6 +416,98 @@ async function restoreMyPick(roundKey) {
   } catch (error) {
     console.warn('自分の選択の読み直しに失敗', error);
     restoringKey = null;
+  }
+}
+
+// ============================================================
+// 6. 効果音：場面が切り替わった瞬間に鳴らす
+//   ・鳴らすのは「切り替わる前の場面を、この端末で見ていた」ときだけ。
+//     リロードした直後や、途中から入ったときは鳴らさない（同じ音が何度も鳴らないように）
+//   ・各スマホが「自分の結果」に合わせて鳴らす。結果公開の瞬間、あちこちで違う音が鳴る
+//   ・どの音のファイルを使うかは config.js の SOUNDS で決める
+// ============================================================
+
+// ターン結果のカードが現れる時間（style.css の .reveal-card と同じ数字にしておく）
+const REVEAL_FIRST_CARD_S = 0.7;   // 最初のカードが現れるまで（秒）
+const REVEAL_CARD_GAP_S = 0.75;    // カードとカードの間（秒）
+const REVEAL_STAMP_S = 0.6;        // カードが現れてから「バースト」などの印が出るまで（秒）
+
+/** いまの場面を表す文字。例：'lobby'、'g1t2:select'（1ゲーム目・2ターン目の選択中）、'finished:1' */
+function viewKeyOf(state) {
+  if (state.status === 'lobby') return 'lobby';
+  if (state.status === 'finished') return `finished:${state.gameNo}`;
+  return `${roundKeyOf(state)}:${state.phase}`;
+}
+
+/** 場面が previousView から state に切り替わったときの音 */
+function playSceneSound(previousView, state) {
+  if (state.status === 'playing' && previousView === 'lobby') {
+    playSound('start');   // ゲーム開始：和太鼓でドドン
+  } else if (state.status === 'playing' && state.phase === 'reveal' && previousView === `${roundKeyOf(state)}:select`) {
+    playRevealSounds(state);
+  } else if (state.status === 'finished' && previousView.endsWith(':reveal')) {
+    startDrumroll();
+  }
+}
+
+/**
+ * ターンの結果公開：全員に「ジャン！」。
+ * そのあと、自分のカードに「バースト」などの印が出るタイミングで、自分の結果に合った音を重ねる。
+ */
+function playRevealSounds(state) {
+  playSound('reveal');
+  const result = state.history?.[turnKey(state.turn)]?.[app.uid];
+  if (!result) return;   // 観戦中（このターンの結果がない）
+
+  let name = null;
+  if (result.out) name = 'burst';                                               // チーン
+  else if (result.outcome === 'duplicate') name = 'duplicate';                  // ガーン
+  else if (result.outcome === 'none' || result.outcome === 'invalid') name = 'zero';   // えっ？
+  else if (isLastReveal(state) && isExactHit(rulesOf(state), result.after)) name = 'exact';   // テッテレー
+  if (!name) return;   // ふつうに加点・見送り：「ジャン！」だけ
+
+  // 自分のカードが何番目に現れるか（views.js の renderRevealCards と同じ並び順）
+  const index = listParticipants(state).findIndex((player) => player.uid === app.uid);
+  // 動きを減らす設定の人は、カードがいっせいに出るので、少しだけ間をあけて鳴らす
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const delay = reduced ? 0.8 : REVEAL_FIRST_CARD_S + index * REVEAL_CARD_GAP_S + REVEAL_STAMP_S;
+  playSound(name, { delay });
+}
+
+/**
+ * 最終結果の前のドラムロール。DRUMROLL_MS のあいだ勝者を伏せておき、
+ * 終わったらシンバルを鳴らして結果を見せ、自分の結果に合った音を鳴らす。
+ */
+function startDrumroll() {
+  const view = app.view;
+  app.drumrollUntil = Date.now() + DRUMROLL_MS;
+  app.drumroll = playSound('drumroll');
+  setTimeout(() => {
+    stopDrumroll();
+    app.drumrollUntil = 0;
+    if (!app.room || app.view !== view) return;   // そのあいだに退出した・次の場面に進んだ
+    playSound('rollEnd');
+    playResultSound(app.room.state);
+    render();   // 伏せていた勝者と順位を見せる
+  }, DRUMROLL_MS);
+}
+
+function stopDrumroll() {
+  app.drumroll?.stop();
+  app.drumroll = null;
+}
+
+/** 最終結果：勝者はファンファーレと歓声、負けた人は「ちゃんちゃん♪」、観戦していた人は拍手 */
+function playResultSound(state) {
+  const { winners, ranking } = judgeResult(state);
+  const me = ranking.find((player) => player.uid === app.uid);
+  if (me?.isWinner) {
+    playSound('win', { delay: 0.3 });
+    playSound('cheer', { delay: 0.6 });
+  } else if (me || winners.length === 0) {
+    playSound('lose', { delay: 0.3 });
+  } else {
+    playSound('cheer', { delay: 0.3 });
   }
 }
 
@@ -568,6 +692,34 @@ function onHintToggle(event) {
   backend.storage.setItem(STORAGE_HINT, app.showHint ? '1' : '0');
 }
 
+// ---- 効果音の大きさ（待機画面とゲーム中のメニューにある、同じつまみ）----
+
+let volumeBeforeMute = DEFAULT_VOLUME;   // スピーカーのボタンで消音する前の大きさ（元に戻すため）
+
+/** つまみを動かしているあいだ：大きさを変えて、2つのつまみの表示をそろえる */
+function onVolumeInput(event) {
+  setVolume(Number(event.target.value));
+  views.renderVolume(getVolume());
+}
+
+/** つまみから指を離したとき：いまの大きさで「ジャン！」を1回鳴らして、聞こえ方を確かめてもらう */
+function onVolumeChange() {
+  if (getVolume() > 0) volumeBeforeMute = getVolume();
+  playSound('reveal');
+}
+
+/** スピーカーのボタン：鳴っていれば消音（0）にし、消音中なら元の大きさに戻す */
+function onMuteTap() {
+  if (getVolume() > 0) {
+    volumeBeforeMute = getVolume();
+    setVolume(0);
+  } else {
+    setVolume(volumeBeforeMute);
+    playSound('reveal');
+  }
+  views.renderVolume(getVolume());
+}
+
 /** 「ゲーム開始」（ホスト） */
 async function onStart() {
   const offlineNames = roomApi
@@ -723,6 +875,13 @@ function bindEvents() {
   $('input-hint').addEventListener('change', onHintToggle);
   $('btn-start').addEventListener('click', onStart);
   $('btn-leave-lobby').addEventListener('click', onLeaveLobby);
+
+  // 効果音の大きさ（待機画面とゲーム中のメニューの両方のつまみ）
+  for (const control of document.querySelectorAll('.volume')) {
+    control.querySelector('.volume-slider').addEventListener('input', onVolumeInput);
+    control.querySelector('.volume-slider').addEventListener('change', onVolumeChange);
+    control.querySelector('.volume-mute').addEventListener('click', onMuteTap);
+  }
 
   // ゲーム
   $('input-search').addEventListener('input', () => views.renderCharList(app));

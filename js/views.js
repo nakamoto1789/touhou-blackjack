@@ -940,6 +940,25 @@ export function renderRules(app) {
   }
 }
 
+/**
+ * 効果音のつまみ（待機画面とゲーム中のメニューの2か所）を、いまの大きさに合わせて描き直す。
+ * どちらで変えても、両方が同じ表示になる。
+ * @param {number} volume 0〜100
+ */
+export function renderVolume(volume) {
+  for (const control of document.querySelectorAll('.volume')) {
+    const slider = control.querySelector('.volume-slider');
+    slider.value = volume;
+    // 線を朱色に塗る位置。丸（幅22px）のまん中に合わせる：左端11px ＋ 残りの長さ × 割合
+    slider.style.setProperty('--fill', `calc(11px + (100% - 22px) * ${volume / 100})`);
+    control.querySelector('.volume-value').textContent = volume;
+    control.classList.toggle('is-muted', volume === 0);
+    const mute = control.querySelector('.volume-mute');
+    mute.setAttribute('aria-label', volume === 0 ? '効果音を元に戻す' : '効果音を消す');
+    mute.setAttribute('aria-pressed', String(volume === 0));
+  }
+}
+
 /** ゲーム中のメニューに、ルームIDとゲームモードを表示する */
 export function renderMenu(app) {
   $('menu-room-id').textContent = app.roomId;

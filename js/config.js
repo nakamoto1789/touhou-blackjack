@@ -99,3 +99,37 @@ export const DEFAULT_PLAYER_NAME = '霊夢';
 
 /** キャラクターデータの場所（index.html から見た相対パス） */
 export const CHARACTERS_URL = './data/characters.json';
+
+// ---- 効果音（js/sound.js が鳴らす）------------------------------------
+
+/** 音のファイルを置くフォルダ（index.html から見た相対パス） */
+export const SOUND_DIR = './sounds/';
+
+/**
+ * 場面ごとの効果音。音は「効果音ラボ」（https://soundeffect-lab.info/）のものを使う。
+ * サイトからダウンロードしたファイルを、名前を変えずに（日本語の名前のまま）sounds フォルダに入れる。
+ * 音を差し替えたいときは、ここの file を書き換えるだけでよい。
+ *
+ *   file   … sounds フォルダの中のファイル名
+ *   volume … この音だけの大きさ（0〜1。省略すると 1 ＝ そのままの大きさ）
+ *   loop   … true なら、止めるまでくり返す（ドラムロールに使う）
+ */
+export const SOUNDS = {
+  start:     { file: '和太鼓でドドン.mp3' },              // ゲーム開始
+  reveal:    { file: 'ジャン！.mp3' },                    // ターンの結果公開（音の大きさを変えたときの試し聞きにも使う）
+  burst:     { file: 'チーン1.mp3' },                     // 自分がバースト
+  duplicate: { file: 'ショック1.mp3' },                   // 重複して +0（ガーン）
+  zero:      { file: '間抜け3.mp3' },                     // 時間切れ・無効で +0（えっ？）
+  exact:     { file: 'レベルアップ.mp3' },                // ぴったり賞（テッテレー）
+  drumroll:  { file: 'ドラムロール.mp3', loop: true },    // 最終結果の前
+  rollEnd:   { file: 'ロールの締め.mp3' },                // ドラムロールの締めのシンバル
+  win:       { file: 'ラッパのファンファーレ.mp3' },      // 最終結果で勝者
+  cheer:     { file: '歓声と拍手1.mp3', volume: 0.5 },    // 勝者・観戦者
+  lose:      { file: 'ちゃんちゃん♪2.mp3' },              // 最終結果で負け・勝者なし
+};
+
+/** 効果音の大きさの初期値（0〜100）。各自が変えた大きさは、その端末に保存される */
+export const DEFAULT_VOLUME = 70;
+
+/** 最終結果を出す前のドラムロールの長さ（ミリ秒）。この間、勝者は「……」で伏せておく */
+export const DRUMROLL_MS = 2500;

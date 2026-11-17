@@ -200,6 +200,11 @@ function exitRoom(message) {
     view: null,
     drumrollUntil: 0,
   });
+  // 「結果を計算した・選択を読み直した」ラウンドの記録も消す。
+  // ラウンドの名前（'g1t1' など）は、別のルームでも同じになる。消さないと、次に入ったルームの同じラウンドで
+  // 「もう計算した」と思い込んで計算せず、ほかの人がオフラインだと「集計しています…」のまま止まってしまう
+  resolvingKey = null;
+  restoringKey = null;
   backend.storage.removeItem(STORAGE_ROOM);
 
   // URLに ?room=XXXXX が残っていると、リロードで参加画面に戻ってしまうので消す
@@ -928,8 +933,9 @@ function bindEvents() {
 }
 
 // ============================================================
-// おまけ：ゲーム中は画面を自動で消灯させない
-// （スマホがスリープすると通信が切れて、ほかの人を待たせてしまうため）
+// おまけ：待機中とゲーム中は、画面を自動で消灯させない
+// （スマホがスリープすると通信が切れて、ほかの人を待たせてしまうため。
+//   待機中に切れると「オフライン」になり、ゲームが始まったときに参加できない）
 // 対応していないブラウザでは何も起きない。
 // ============================================================
 let wakeLock = null;
@@ -938,14 +944,15 @@ let wakeLockBusy = false;   // お願いしている最中か（二重にお願�
 async function updateWakeLock() {
   if (wakeLockBusy) return;
   wakeLockBusy = true;
-  const playing = app.room?.state?.status === 'playing';
+  const status = app.room?.state?.status;
+  const keepAwake = status === 'lobby' || status === 'playing';
   try {
-    if (playing && !wakeLock && 'wakeLock' in navigator && document.visibilityState === 'visible') {
+    if (keepAwake && !wakeLock && 'wakeLock' in navigator && document.visibilityState === 'visible') {
       wakeLock = await navigator.wakeLock.request('screen');
       wakeLock.addEventListener('release', () => {
         wakeLock = null;
       });
-    } else if (!playing && wakeLock) {
+    } else if (!keepAwake && wakeLock) {
       await wakeLock.release();
     }
   } catch {

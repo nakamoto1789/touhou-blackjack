@@ -23,8 +23,9 @@ let master = null;               // 全部の音の大きさをまとめて変�
 let volume = DEFAULT_VOLUME;     // 音の大きさ（0〜100）
 const buffers = new Map();       // 効果音の名前 → 読み込んだ音（AudioBuffer）
 let loading = null;              // 全部の音の読み込みが終わると完了する Promise
+const scheduled = new Set();     // 鳴っている音・鳴る予定の音を取り消す関数（音の装置が止まったときに、まとめて取り消すため）
 
-// 読み込みを待って鳴らすときに、これより遅れたら鳴らさない（秒）。場面とずれた音は、ないほうがよいため
+// 読み込みや音の装置の再開を待って鳴らすときに、これより遅れたら鳴らさない（秒）。場面とずれた音は、ないほうがよいため
 const MAX_LATE_S = 2;
 
 /**
@@ -41,6 +42,14 @@ export function initSound(store) {
   for (const type of ['pointerdown', 'touchend', 'keydown']) {
     document.addEventListener(type, unlockSound, { capture: true, passive: true });
   }
+
+  // 別のアプリから戻ってきたとき：止められていた音の装置を、さわる前に動かせるなら動かしておく
+  // （ブラウザによっては、画面をさわるまで動かせない。そのときは、さわったときに unlockSound が動かす）
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && context && context.state !== 'running') {
+      context.resume().catch(() => {});
+    }
+  });
 }
 
 /** 画面をさわったときに呼ばれる。音を鳴らす装置を作り（1回目だけ）、止まっていたら動かす */
@@ -59,6 +68,14 @@ function unlockSound() {
     silence.buffer = context.createBuffer(1, 1, 22050);
     silence.connect(context.destination);
     silence.start(0);
+
+    // 音の装置が止められたとき（スマホで別のアプリに切り替えた・画面を消した・電話が来たなど）は、
+    // 鳴る予定だった音を取り消す。止まっている間も予定は残るので、そのままだと、
+    // あとで動き出した瞬間（次に画面をさわったときなど）に、場面と関係なく鳴ってしまう
+    context.onstatechange = () => {
+      if (context.state === 'running') return;
+      for (const cancel of scheduled) cancel();
+    };
 
     loading = loadAllSounds();
   }
@@ -88,8 +105,9 @@ function decode(data) {
 
 /**
  * 効果音を鳴らす。
- * 音の読み込みがまだ終わっていないとき（リロード直後の最初のタップのすぐあとなど）は、
- * 読み込みを待ってから鳴らす。ただし MAX_LATE_S 秒以上遅れるなら鳴らさない。
+ * 次のときは、待ってから鳴らす。ただし MAX_LATE_S 秒以上遅れるなら鳴らさない（場面とずれるため）。
+ *   ・音の読み込みがまだ終わっていない（リロード直後の最初のタップのすぐあとなど）
+ *   ・音の装置が止められている（スマホで別のアプリから戻ってきた直後など）
  * @param {string} name   config.js の SOUNDS の名前（'reveal' など）
  * @param {object} [options]
  * @param {number} [options.delay] 何秒後に鳴らすか（画面の演出に合わせるため）
@@ -103,13 +121,14 @@ export function playSound(name, { delay = 0 } = {}) {
   if (!context || !SOUNDS[name] || volume === 0) return null;
 
   const requestedAt = performance.now();
-  let stopNow = null;      // 鳴り始めたあとに止める関数
-  let stopped = false;     // 鳴り始める前に「止めて」と言われたか
+  let cancel = null;       // 鳴り始めたあと（鳴る予定に入れたあと）に止める関数
+  let stopped = false;     // 鳴る予定に入れる前に「止めて」と言われたか
 
   const start = () => {
     const buffer = buffers.get(name);
-    if (stopped || !buffer) return;   // 止められた・ファイルがない
-    const late = (performance.now() - requestedAt) / 1000;   // 読み込みを待って遅れた秒数
+    if (stopped || !buffer) return;              // 止められた・ファイルがない
+    if (context.state !== 'running') return;     // 音の装置が止まったまま（あとで動き出したときに、遅れて鳴らないように）
+    const late = (performance.now() - requestedAt) / 1000;   // 待ったせいで遅れた秒数
     if (late > MAX_LATE_S) return;
 
     const source = context.createBufferSource();
@@ -122,7 +141,8 @@ export function playSound(name, { delay = 0 } = {}) {
     source.start(context.currentTime + Math.max(0, delay - late));
 
     // すっと小さくしてから止める（いきなり止めると「プツッ」と音が出るため）
-    stopNow = () => {
+    cancel = () => {
+      scheduled.delete(cancel);
       const now = context.currentTime;
       gain.gain.setTargetAtTime(0, now, 0.05);
       try {
@@ -131,15 +151,21 @@ export function playSound(name, { delay = 0 } = {}) {
         // すでに止まっているときは何もしない
       }
     };
+    scheduled.add(cancel);
+    source.onended = () => scheduled.delete(cancel);   // 鳴り終わったら、取り消す対象から外す
   };
 
-  if (buffers.has(name)) start();
-  else loading?.then(start);
+  // 鳴らす前に待つもの：音の読み込み・止められている音の装置の再開
+  const waits = [];
+  if (!buffers.has(name)) waits.push(loading);
+  if (context.state !== 'running') waits.push(context.resume());
+  if (waits.length === 0) start();
+  else Promise.all(waits).then(start, () => {});
 
   return {
     stop() {
       stopped = true;
-      stopNow?.();
+      cancel?.();
     },
   };
 }

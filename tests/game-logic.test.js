@@ -20,6 +20,7 @@ import {
   originalSettingsOf,
   withOriginalSettings,
   isDrawRules,
+  isNearRules,
   isCharacterUsable,
   listUsableCharacters,
   pointsFor,
@@ -27,6 +28,8 @@ import {
   isExactHit,
   rankSpanOf,
   hintRangeOf,
+  safeLimitOf,
+  drawNear,
   drawnCharIdOf,
   createGameState,
   createLobbyState,
@@ -705,6 +708,7 @@ test('オリジナル: 最初は「ハードの設定・ランダムキャラク
   assertEqual(originalSettingsOf(lobbyOf('original')), { base: 'hard', drawStyle: 'random' });
   assertEqual(presetRules('original'), {
     targetScore: 150, burstScore: 151, maxTurns: 5, minRank: 1, pickStyle: 'draw', drawStyle: 'random', hintBand: 50,
+    nearWidth: 20, nearPercent: 80,
   });
   assertEqual(lobbyOf('original').rules, presetRules('original'));
   assertEqual(isDrawRules(presetRules('original')), true);
@@ -716,8 +720,10 @@ test('オリジナル: 数字はハードかノーマルの設定を借りる。
   assertEqual(lobby.original, { base: 'normal', drawStyle: 'shared' });
   assertEqual(lobby.rules, {
     targetScore: 50, burstScore: 51, maxTurns: 5, minRank: 1, maxRank: 50, pickStyle: 'draw', drawStyle: 'shared', hintBand: 10,
+    nearWidth: 10, nearPercent: 80,
   });
   assertEqual(originalLobby({ base: 'hard', drawStyle: 'shared' }).rules.hintBand, 50);
+  assertEqual(originalLobby({ base: 'hard', drawStyle: 'shared' }).rules.nearWidth, 20);
 });
 
 test('オリジナル: 設定を変えられるのは、オリジナルが選ばれている待機中だけ。知らない値は不可', () => {
@@ -749,7 +755,8 @@ test('オリジナル: 前のバージョンの「数字を入力する」オリ
 });
 
 test('オリジナル: ゲーム開始で1ターン目のキャラが出る。ランダムキャラクターは人ごとに違う', () => {
-  const state = startOriginal({ base: 'hard', drawStyle: 'random' }, 3, fixedRandom(0, 0.5, 0.999));
+  // 各自「2割の全体抽選」（0.9 → 窓からは出さない）で、全体の別々の位置（0.1・0.5・0.95）から出す
+  const state = startOriginal({ base: 'hard', drawStyle: 'random' }, 3, fixedRandom(0.9, 0.1, 0.9, 0.5, 0.9, 0.95));
   const drawn = ['A', 'B', 'C'].map((uid) => drawnCharIdOf(state, uid));
   assertEqual(drawn.every((id) => charById.has(id)), true, '本物のキャラクター');
   assertEqual(new Set(drawn).size, 3, '3人とも別のキャラ');
@@ -832,6 +839,131 @@ test('オリジナル: 5ターンで終了し、目標値に近い人が勝者�
   assertEqual(finished.status, 'finished');
   const result = judgeResult(finished);
   assertEqual([result.winners, result.ranking[0].total, result.ranking[0].exact], [['A'], 50, true]);
+});
+
+// ---- オリジナル：境目の近くのキャラが出やすくなる抽選のテスト ----------
+
+/** 窓の設定（nearWidth・nearPercent）を取り除いた、いま公開中の版のルール */
+const withoutNear = ({ nearWidth, nearPercent, ...rest }) => rest;
+
+test('オリジナル: 窓の設定は、2つそろっていて、正しい数のときだけ使える', () => {
+  const rules = presetRules('original');
+  assertEqual([isNearRules(rules), isNearRules(withoutNear(rules))], [true, false]);
+  assertEqual(isValidRules(withoutNear(rules)), true, '窓の設定がない（いま公開中の版）');
+  assertEqual(isValidRules({ ...rules, nearPercent: 0 }), true, '0%');
+  assertEqual(isValidRules({ ...rules, nearPercent: 100 }), true, '100%');
+  assertEqual(isValidRules({ ...rules, nearWidth: 0 }), false, '幅0');
+  assertEqual(isValidRules({ ...rules, nearPercent: 101 }), false, '101%');
+  assertEqual(isValidRules({ ...rules, nearPercent: 80.5 }), false, '小数');
+  const { nearPercent, ...onlyWidth } = rules;
+  assertEqual(isValidRules(onlyWidth), false, '片方だけ');
+});
+
+test('バージョン: 窓の設定がない（いま公開中の版で始めた）オリジナルのゲームも、続けられる', () => {
+  const game = startOriginal({ base: 'hard', drawStyle: 'random' });
+  assertEqual(compatibilityOf({ ...game, rules: withoutNear(game.rules) }), 'ok');
+});
+
+// キャラクターデータは順位順に並んでいるので、「窓の先頭」は窓のいちばん小さい順位になる
+const HARD_NEAR = presetRules('original');                                        // 幅20
+const NORMAL_NEAR = originalLobby({ base: 'normal', drawStyle: 'random' }).rules; // 幅10
+const usableOf = (rules) => listUsableCharacters(rules, characters);
+const rankOfNear = (rules, limit, random, pool = usableOf(rules)) => drawNear(pool, limit, rules, random).rank;
+
+test('窓: 境目は「持ってもセーフな最大の順位」。下（セーフ側）と上（バースト側）の窓から出す', () => {
+  assertEqual([safeLimitOf(HARD_NEAR, 120), safeLimitOf(HARD_NEAR, 0), safeLimitOf(NORMAL_NEAR, 45)], [30, 150, 5]);
+  assertEqual(rankOfNear(HARD_NEAR, 30, fixedRandom(0, 0.49, 0)), 11, 'セーフ側の先頭（11〜30位）');
+  assertEqual(rankOfNear(HARD_NEAR, 30, fixedRandom(0, 0.49, 0.999)), 30, 'セーフ側の最後');
+  assertEqual(rankOfNear(HARD_NEAR, 30, fixedRandom(0, 0.5, 0)), 31, 'バースト側の先頭（31〜50位）');
+  assertEqual(rankOfNear(HARD_NEAR, 30, fixedRandom(0, 0.5, 0.999)), 50, 'バースト側の最後');
+  assertEqual(rankOfNear(NORMAL_NEAR, 5, fixedRandom(0, 0.5, 0.999)), 15, 'ノーマルの数字は幅10');
+});
+
+test('窓: 片方の窓に候補がいなければ、もう片方から（乱数で側を選ばない）', () => {
+  assertEqual(rankOfNear(HARD_NEAR, 0, fixedRandom(0, 0.999)), 20, '目標ちょうど：バースト側の1〜20位だけ');
+  // 境目30位で、バースト側の窓（31〜40位）は出尽くしたが、窓の外（41〜50位）にはバーストするキャラが残っている
+  const pool = usableOf(NORMAL_NEAR).filter((c) => c.rank <= 30 || c.rank >= 41);
+  assertEqual(rankOfNear(NORMAL_NEAR, 30, fixedRandom(0, 0), pool), 21, 'セーフ側（21〜30位）の先頭');
+  assertEqual(rankOfNear(NORMAL_NEAR, 30, fixedRandom(0, 0.999), pool), 30, 'セーフ側の最後');
+});
+
+test('窓: 何を持ってもバーストしない（持つとバーストするキャラが候補にいない）ときは、境目の半分を中心にする', () => {
+  // ノーマルの数字で合計0点 → 境目50位。51位以上はいないので、どれを持ってもセーフ。
+  // そのままだと 41〜50位ばかり出て「1ターン目は持って、あとは全部持たない」で勝ててしまうので、
+  // 25位を仮の中心にして 16〜25位と 26〜35位の窓から出す
+  assertEqual(rankOfNear(NORMAL_NEAR, 50, fixedRandom(0, 0.49, 0)), 16, '下の窓の先頭');
+  assertEqual(rankOfNear(NORMAL_NEAR, 50, fixedRandom(0, 0.5, 0.999)), 35, '上の窓の最後');
+  // 合計1点（境目49位）なら、50位を持つとバーストするので、今までどおり境目の窓（バースト側は50位だけ）
+  assertEqual(rankOfNear(NORMAL_NEAR, 49, fixedRandom(0, 0.5, 0.999)), 50);
+  // ハードの数字で合計0点は、151位以上を持つとバーストするので、今までどおり 131〜170位
+  assertEqual(rankOfNear(HARD_NEAR, 150, fixedRandom(0, 0.49, 0)), 131);
+});
+
+test('窓: 両方の窓に候補がいなければ、候補全体から', () => {
+  const pool = usableOf(HARD_NEAR).filter((c) => c.rank >= 100 && c.rank <= 110);
+  assertEqual(rankOfNear(HARD_NEAR, 30, fixedRandom(0, 0), pool), 100);
+});
+
+test('窓: 残りの2割は候補全体から。窓の設定がない古いルールは今までどおり全体から', () => {
+  assertEqual(rankOfNear(HARD_NEAR, 30, fixedRandom(0.8, 0)), 1, '0.8 → 80%以上なので全体の先頭');
+  assertEqual(rankOfNear(HARD_NEAR, 30, fixedRandom(0.79, 0.49, 0)), 11, '0.79 → 窓から');
+  assertEqual(rankOfNear(withoutNear(HARD_NEAR), 30, fixedRandom(0)), 1, '乱数1回で全体から');
+});
+
+test('オリジナル: ランダムキャラクターは、各自の合計で境目を決める', () => {
+  let state = startOriginal({ base: 'hard', drawStyle: 'random' }, 2, first);   // 合計0 → 窓131〜170位。先頭の131位
+  assertEqual(['A', 'B'].map((uid) => charById.get(drawnCharIdOf(state, uid)).rank), [131, 131]);
+  state = resolveTurn(state, { A: PASS, B: PASS }, charById);
+  state.scores.A.total = 120;                                                    // A の境目は30位
+  state = advance(state, characters, first);
+  assertEqual(['A', 'B'].map((uid) => charById.get(drawnCharIdOf(state, uid)).rank), [11, 132], 'B は一度出た131位を除く');
+});
+
+test('オリジナル: 窓の設定がない古いゲームは、今までどおり全体から同じ確率で出る', () => {
+  const lobby = originalLobby({ base: 'hard', drawStyle: 'random' });
+  const state = createGameState(players(2), 1, { ...lobby, rules: withoutNear(lobby.rules) }, characters, first);
+  assertEqual(['A', 'B'].map((uid) => charById.get(drawnCharIdOf(state, uid)).rank), [1, 1]);
+});
+
+test('固定キャラクター: 主役は、主役になった回数が少ない人から順番。バーストした人はならない', () => {
+  let state = startOriginal({ base: 'hard', drawStyle: 'shared' }, 3, first);
+  const focusOrder = [state.focus.t1];
+  for (let turn = 2; turn <= 4; turn++) {
+    state = resolveTurn(state, { A: PASS, B: PASS, C: PASS }, charById);
+    state = advance(state, characters, first);
+    focusOrder.push(state.focus[`t${turn}`]);
+  }
+  assertEqual(focusOrder, ['A', 'B', 'C', 'A'], '3人が1回ずつ主役になってから、また最初の人');
+
+  state = resolveTurn(state, { A: PASS, B: PASS, C: PASS }, charById);
+  state.scores.B.out = true;                       // B がバーストしたことにする
+  state = advance(state, characters, first);
+  assertEqual(state.focus.t5, 'C', '回数がいちばん少ないのは B と C。B はバーストしているので C');
+});
+
+test('固定キャラクター: 主役の合計で境目を決め、全員に同じキャラが出る', () => {
+  let state = startOriginal({ base: 'hard', drawStyle: 'shared' }, 3, first);   // 主役 A（合計0）→ 131位
+  state = resolveTurn(state, { A: PASS, B: PASS, C: PASS }, charById);
+  state.scores.B.total = 120;                                                    // 次の主役 B の境目は30位
+  state = advance(state, characters, first);
+  assertEqual(state.focus.t2, 'B');
+  assertEqual(['A', 'B', 'C'].map((uid) => charById.get(drawnCharIdOf(state, uid)).rank), [11, 11, 11]);
+});
+
+test('固定キャラクター: 窓の設定がない古いゲームでは、主役を決めず、全体から出す', () => {
+  const lobby = originalLobby({ base: 'hard', drawStyle: 'shared' });
+  const state = createGameState(players(3), 1, { ...lobby, rules: withoutNear(lobby.rules) }, characters, first);
+  assertEqual(state.focus, undefined);
+  assertEqual(charById.get(drawnCharIdOf(state, 'A')).rank, 1);
+});
+
+test('窓: 割合を0%にすると、前の版と同じ抽選（全体から・乱数1回・主役なし）になる', () => {
+  const off = { ...HARD_NEAR, nearPercent: 0 };
+  assertEqual(isNearRules(off), false, '0%は「使わない」');
+  assertEqual(rankOfNear(off, 30, fixedRandom(0, 0.999)), 1, '乱数1回（0）で全体の先頭');
+  const lobby = originalLobby({ base: 'hard', drawStyle: 'shared' });
+  const state = createGameState(players(3), 1, { ...lobby, rules: { ...lobby.rules, nearPercent: 0 } }, characters, first);
+  assertEqual(state.focus, undefined, '主役を決めない');
 });
 
 test('ヒント: ハードの設定は50位ごと、ノーマルの設定は10位ごとの範囲', () => {

@@ -29,10 +29,13 @@
 //     maxTurns: 5,             //   ターン数
 //     minRank: 1,              //   使えるキャラクターの順位（開始）
 //     maxRank: 50,             //   使えるキャラクターの順位（終了）。無ければ「最後の順位まで」
-//     ---- ここから下の3つは、オリジナル（持つ／持たない）のときだけ入る ----
+//     ---- ここから下は、オリジナル（持つ／持たない）のときだけ入る ----
 //     pickStyle: 'draw',       //   ランダムに出たキャラを「持つ／持たない」で遊ぶ
 //     drawStyle: 'random',     //   'random' … 人ごとに違うキャラ ／ 'shared' … 全員に同じキャラ
 //     hintBand: 50,            //   初心者のヒントで見える順位の範囲の幅（50 なら「51〜100位」のように出る）
+//     nearWidth: 20,           //   境目の前後に作る「窓」の幅（位）。キャラはこの窓から出やすい
+//     nearPercent: 80,         //   窓から出す割合（%）。残りは全体から
+//                              //   （この2つは、前の版で始めたゲームには入っていない。そのときは全体から同じ確率で出す）
 //   },
 //   original: { base: 'hard', drawStyle: 'random' },  // ホストが選んだオリジナルの設定（選んだときだけ入る）
 //   turn: 1,                   // 現在のターン (1〜rules.maxTurns)
@@ -42,6 +45,7 @@
 //   },
 //   banned:  { c3: 1 },        // 使用禁止キャラ（キー: 'c'+キャラid、値: 禁止になったターン）
 //   draws:   { t1: { <uid>: キャラid } },  // オリジナルで、各ターンにその人に出たキャラ
+//   focus:   { t1: <uid> },                // オリジナルの固定キャラクターで、各ターンの主役（境目を合わせた人）
 //   history: { t1: { <uid>: {…ターン結果…} } }   // 各ターンの結果
 // }
 //
@@ -55,11 +59,11 @@ import { GAME_MODES, DEFAULT_MODE, MIN_PLAYERS, MAX_PLAYERS } from './config.js'
 
 /**
  * ルールの項目（意味は上の「ゲームの状態の形」と config.js を参照）。
- * 最初の5つはどのモードにもあり、残りの3つはオリジナル（持つ／持たない）のときだけ入る。
+ * 最初の5つはどのモードにもあり、残りはオリジナル（持つ／持たない）のときだけ入る。
  */
 export const RULE_KEYS = [
   'targetScore', 'burstScore', 'maxTurns', 'minRank', 'maxRank',
-  'pickStyle', 'drawStyle', 'hintBand',
+  'pickStyle', 'drawStyle', 'hintBand', 'nearWidth', 'nearPercent',
 ];
 
 /** キャラの出し方の種類（このファイルの drawTurn が、それぞれの出し方を知っている） */
@@ -103,12 +107,37 @@ export function isValidRules(rules) {
     (maxRank == null || (isCount(maxRank) && maxRank >= minRank));
   if (!numbersOk) return false;
   if (rules.pickStyle == null) return true;   // ハード・ノーマルの形
-  return rules.pickStyle === 'draw' && DRAW_STYLE_IDS.includes(rules.drawStyle) && isCount(rules.hintBand);
+  return (
+    rules.pickStyle === 'draw' &&
+    DRAW_STYLE_IDS.includes(rules.drawStyle) &&
+    isCount(rules.hintBand) &&
+    isValidNearSettings(rules)
+  );
+}
+
+/**
+ * 窓の設定（nearWidth・nearPercent）の形が正しいか。
+ * 2つとも入っていない（前の版で始めたゲーム）か、2つとも入っていて、
+ * 幅が1以上の整数・割合が0〜100の整数なら正しい。
+ */
+function isValidNearSettings(rules) {
+  const { nearWidth, nearPercent } = rules;
+  if (nearWidth == null && nearPercent == null) return true;
+  return isCount(nearWidth) && Number.isInteger(nearPercent) && nearPercent >= 0 && nearPercent <= 100;
 }
 
 /** オリジナル（ランダムに出たキャラを持つ／持たない）のルールか */
 export function isDrawRules(rules) {
   return rules?.pickStyle === 'draw';
+}
+
+/**
+ * 境目の近くのキャラが出やすくなる抽選を使うルールか（窓の設定が2つとも入っていて、割合が0%より大きいか）。
+ * 前の版で始めたオリジナルのゲームには入っていない。割合を0%にしたときも「使わない」。
+ * どちらのときも、全体から同じ確率で出し、主役も決めない（前の版とまったく同じ抽選）。
+ */
+export function isNearRules(rules) {
+  return rules?.nearWidth != null && rules?.nearPercent > 0;
 }
 
 // ---- ゲームモード ------------------------------------------------------
@@ -207,14 +236,18 @@ export function originalSettingsOf(state, modeId = drawModeId()) {
 
 /**
  * 設定から、オリジナルのルールを作る。
- * 例: ハードの数字・ランダム → { targetScore: 150, …ハードと同じ…, pickStyle: 'draw', drawStyle: 'random', hintBand: 50 }
+ * 例: ハードの数字・ランダム → { targetScore: 150, …ハードと同じ…, pickStyle: 'draw', drawStyle: 'random', hintBand: 50,
+ *                               nearWidth: 20, nearPercent: 80 }
  */
 function drawRulesOf(modeId, settings) {
+  const mode = GAME_MODES[modeId];
   return {
     ...pickRules(GAME_MODES[settings.base]),
     pickStyle: 'draw',
     drawStyle: settings.drawStyle,
-    hintBand: GAME_MODES[modeId].hintBand[settings.base],
+    hintBand: mode.hintBand[settings.base],
+    nearWidth: mode.nearWidth[settings.base],   // 窓の幅は、借りるモードごとに違う（ハード 20・ノーマル 10）
+    nearPercent: mode.nearPercent,
   };
 }
 
@@ -454,12 +487,62 @@ function pickOne(list, random) {
 }
 
 /**
+ * 境目：その合計の人が「持ってもバーストしない」最大の順位。
+ * 例：ハードの数字（151点でバースト）で合計120点 → 151 − 1 − 120 = 30（30位までなら持ってもセーフ）
+ */
+export function safeLimitOf(rules, total) {
+  return rules.burstScore - 1 - total;
+}
+
+/**
+ * 境目の近くのキャラが出やすいように、候補から1人を選ぶ。
+ *
+ *   ① rules.nearPercent % の確率で「窓」から選ぶ。そうでなければ候補全体から選ぶ（いままでと同じ）。
+ *   ② 窓は2つ。セーフ側＝境目から下に nearWidth 位分（limit−w+1 〜 limit 位）、
+ *      バースト側＝境目から上に nearWidth 位分（limit+1 〜 limit+w 位）。
+ *      両方に候補がいれば半々で選ぶ（どちらかに偏ると「いつも持つ／いつも持たない」で勝ててしまうため）。
+ *      片方にしかいなければそちら、両方いなければ候補全体から。
+ *   ③ 選んだ窓（または全体）の中から、同じ確率で1人。
+ *
+ * 窓の設定がないルール（前の版で始めたゲーム）は、候補全体から同じ確率で選ぶ。
+ * テストで結果を固定できるよう、乱数を使う順番は ①（窓の設定があるときだけ）→ ②（窓が2つともあるときだけ）→ ③ に決めてある。
+ *
+ * @param {Array} candidates 候補（まだ出ていない、使えるキャラ）。並び順はそのまま使う
+ * @param {number} limit 境目（safeLimitOf の値）
+ * @param {object} rules そのゲームのルール
+ * @param {() => number} random 0以上1未満の数を返す乱数
+ */
+export function drawNear(candidates, limit, rules, random) {
+  if (!isNearRules(rules)) return pickOne(candidates, random);
+  if (random() * 100 >= rules.nearPercent) return pickOne(candidates, random);   // 残りの割合：全体から
+
+  const width = rules.nearWidth;
+  // 窓の中心。ふつうは境目。ただし、持つとバーストするキャラが候補に1人もいない（何を持ってもセーフ）ときは、
+  // 境目では迷えないので、境目の半分を中心にする。
+  // 例：ノーマルの数字で合計0点 → 境目50位で、51位以上はいない → 25位を中心に 16〜35位から出やすくする
+  // （境目のままだと 41〜50位ばかり出て、「1ターン目は持って、あとは全部持たない」だけで勝ててしまうため）
+  const anyBurst = candidates.some((c) => c.rank > limit);
+  const center = anyBurst ? limit : Math.round(limit / 2);
+  const safeSide = candidates.filter((c) => c.rank > center - width && c.rank <= center);
+  const burstSide = candidates.filter((c) => c.rank > center && c.rank <= center + width);
+  let side;
+  if (safeSide.length > 0 && burstSide.length > 0) side = random() < 0.5 ? safeSide : burstSide;
+  else if (safeSide.length > 0) side = safeSide;
+  else if (burstSide.length > 0) side = burstSide;
+  else side = candidates;   // 窓の中のキャラが、もう全員出てしまった
+  return pickOne(side, random);
+}
+
+/**
  * そのターンに出るキャラを決めて、状態（state.draws）に書いた新しい状態を返す。
  * ターンが始まる瞬間（ゲーム開始・「次のターンへ」）に1回だけ呼ばれる。
  * 決めたキャラはルームのデータに残るので、再読み込みしても引き直しにはならない。
  *
- *   ランダムキャラクター（random）… バーストしていない人ごとに別々に選ぶ。その人に一度出たキャラは出さない
- *   固定キャラクター（shared）   … 1人だけ選び、バーストしていない全員に同じキャラを出す。このゲームで一度出たキャラは出さない
+ *   ランダムキャラクター（random）… バーストしていない人ごとに別々に選ぶ。その人に一度出たキャラは出さない。
+ *                                    その人の合計から境目を決め、境目の近くのキャラが出やすくする（drawNear）
+ *   固定キャラクター（shared）   … 1人だけ選び、バーストしていない全員に同じキャラを出す。このゲームで一度出たキャラは出さない。
+ *                                    ターンごとに1人の「主役」を決め（pickFocus）、主役の合計から境目を決める。
+ *                                    主役は state.focus に書くが、画面には出さない（出すと順位のヒントになるため）
  *
  * 選ぶのは、そのルールで使えるキャラクター（ノーマルの数字なら1〜50位）の中から。
  * オリジナル以外のルールのときは、何も変えずにそのまま返す。
@@ -477,17 +560,42 @@ export function drawTurn(state, characters, random = secureRandom) {
   };
 
   const draws = {};
+  let focus = null;   // 固定キャラクターで、このターンの主役（境目を合わせる人）
   if (rules.drawStyle === 'shared') {
     const shown = new Set(pastDraws.flatMap((turnDraws) => Object.values(turnDraws)));
-    const character = pickOne(candidates(shown), random);
+    let character;
+    if (isNearRules(rules)) {
+      // 全員に同じキャラを出すので、境目は1人（主役）に合わせる。主役は順番に回ってくる
+      focus = pickFocus(state, random);
+      character = drawNear(candidates(shown), safeLimitOf(rules, state.scores[focus].total), rules, random);
+    } else {
+      character = pickOne(candidates(shown), random);   // 前の版で始めたゲーム：全体から同じ確率で
+    }
     for (const uid of activeUids(state)) draws[uid] = character.id;
   } else {
     for (const uid of activeUids(state)) {
       const shown = new Set(pastDraws.map((turnDraws) => turnDraws[uid]).filter((id) => id != null));
-      draws[uid] = pickOne(candidates(shown), random).id;
+      const limit = safeLimitOf(rules, state.scores[uid].total);
+      draws[uid] = drawNear(candidates(shown), limit, rules, random).id;
     }
   }
-  return { ...state, draws: { ...(state.draws || {}), [turnKey(state.turn)]: draws } };
+  const next = { ...state, draws: { ...(state.draws || {}), [turnKey(state.turn)]: draws } };
+  // 主役はルームのデータに書いておく（再読み込みしても変わらない。次のターンの主役を決めるときにも使う）
+  if (focus !== null) next.focus = { ...(state.focus || {}), [turnKey(state.turn)]: focus };
+  return next;
+}
+
+/**
+ * 固定キャラクターで、このターンの主役を選ぶ。
+ * バーストしていない人のうち、これまでに主役になった回数がいちばん少ない人たちから1人（同じなら乱数で）。
+ * そのため、全員が1回ずつ主役になってから、2回目が回ってくる。
+ */
+function pickFocus(state, random) {
+  const counts = {};   // uid → 主役になった回数
+  for (const uid of Object.values(state.focus || {})) counts[uid] = (counts[uid] || 0) + 1;
+  const active = activeUids(state);
+  const fewest = Math.min(...active.map((uid) => counts[uid] || 0));
+  return pickOne(active.filter((uid) => (counts[uid] || 0) === fewest), random);
 }
 
 /** このターンに、その人に出たキャラのid（出ていなければ null） */

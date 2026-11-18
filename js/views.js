@@ -34,6 +34,8 @@ import {
   presetRules,
   originalSettingsOf,
   isDrawRules,
+  isNearRules,
+  safeLimitOf,
   listUsableCharacters,
   rankSpanOf,
   hintRangeOf,
@@ -119,9 +121,21 @@ function describeRules(state, characters) {
 
   if (isDrawRules(rules)) {
     const style = drawStyleInfo(state, rules.drawStyle);
+    // 境目の近くが出やすい抽選（前の版で始めたゲームには、この決まりがない）
+    // 合計0点ではどのキャラを持ってもバーストしないルール（ノーマルの数字）は、そのときだけ境目の半分の前後から出る
+    const startLimit = safeLimitOf(rules, 0);
+    const safeAtStart = rules.maxRank != null && rules.maxRank <= startLimit;
+    const near = isNearRules(rules)
+      ? 'あと何点でバーストするかの境目に近い順位のキャラが出やすくなっています' +
+        (rules.drawStyle === 'shared' ? '（全員同じキャラなので、ターンごとに1人の境目に合わせます）。' : '。') +
+        (safeAtStart
+          ? `合計0点のときは、どのキャラを持ってもバーストしないので、${Math.round(startLimit / 2)}位前後のキャラが出やすくなっています。`
+          : '')
+      : '';
     return (
       `${using}、${rules.targetScore}点を目指します。` +
       `毎ターン、キャラクターが1人出ます。キャラの出し方は「${style.name}」（${style.description}）です。` +
+      near +
       `名前だけを見て「持つ」か「持たない」かを決め、${rules.maxTurns}ターンで${rules.targetScore}点にできるだけ近づけてください。` +
       `${rules.burstScore}点以上になるとバーストです。`
     );
@@ -909,6 +923,8 @@ export function renderRules(app) {
       mode.name,
       mode.draw
         ? '毎ターン、ランダムにキャラクターが1人出ます。名前だけを見て「持つ」か「持たない」かを決めるモードです。' +
+          // config.js の nearPercent を 0 にして、境目に寄せる抽選を止めたときは書かない
+          (isNearRules(presetRules(mode.id)) ? 'あと何点でバーストするかの境目に近い順位のキャラが出やすくなっています。' : '') +
           '数字（ハードかノーマルの設定）と、キャラの出し方（人ごとに違う／全員同じ）は、ホストが選びます。'
         : describeRules({ mode: mode.id, rules: presetRules(mode.id) }, app.characters),
     ]);
@@ -923,6 +939,10 @@ export function renderRules(app) {
   for (const item of document.querySelectorAll('[data-flow]')) {
     item.hidden = (item.dataset.flow === 'draw') !== drawFlow;
   }
+  // 「境目に近いキャラが出やすい」の一文は、その抽選を使うゲームのときだけ出す
+  // （前の版で始めたゲームや、config.js で割合を 0 にしたときは出さない）
+  const nearFlow = drawFlow && isNearRules(rulesOf(state));
+  for (const item of document.querySelectorAll('[data-near]')) item.hidden = !nearFlow;
 
   $('rules-modes').innerHTML =
     blocks

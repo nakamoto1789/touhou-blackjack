@@ -243,7 +243,8 @@ export const GAME_MODES = {
               targetScore: 50,  burstScore: 51,  maxTurns: 5, minRank: 1, maxRank: 50 },
   original: { name: 'オリジナル', description: '出たキャラを持つか持たないか', available: true, draw: true,
               bases: ['hard', 'normal'], drawStyles: { random: {…}, shared: {…} },
-              hintBand: { hard: 50, normal: 10 } },
+              hintBand: { hard: 50, normal: 10 },
+              nearWidth: { hard: 20, normal: 10 }, nearPercent: 80 },
 };
 ```
 
@@ -255,6 +256,8 @@ export const GAME_MODES = {
 | `bases` | （オリジナルだけ）数字を借りられるモード。最初のものが最初に選ばれている |
 | `drawStyles` | （オリジナルだけ）キャラの出し方の名前と説明 |
 | `hintBand` | （オリジナルだけ）初心者のヒントで見える範囲の幅。借りるモードごとに決める |
+| `nearWidth` | （オリジナルだけ）出るキャラを寄せる「窓」の幅（位）。あと何点でバーストするかの境目の、すぐ下とすぐ上にこの幅の窓を作る。借りるモードごとに決める |
+| `nearPercent` | （オリジナルだけ）窓から出す割合（%）。残りは使えるキャラ全体から出る |
 | `targetScore` | 目標値 |
 | `burstScore` | バーストする点数。合計がこの点数**以上**になったらバースト |
 | `maxTurns` | ターン数 |
@@ -274,6 +277,9 @@ export const GAME_MODES = {
 
 - **オリジナルを一時的に隠したいとき**：`original` の `available` を `false` にすると、「準備中」と表示されて選べなくなります。
 - **ヒントの幅を変えたいとき**：`original` の `hintBand` を書き換えます（例：ハードの設定で25位ごとにするなら `hard: 25`）。
+- **出るキャラの寄せ方を変えたいとき**：`original` の `nearWidth`（窓の幅）と `nearPercent`（窓から出す割合）を書き換えます。
+  窓を広げると、出たキャラから順位を読みにくくなります。`nearPercent: 0` にすると、全体から同じ確率で出る前の作りに戻ります。
+  新しい数字は、次に始めたゲームから使われます。
 - **この5つ以外のルール**をモードごとに変えたいとき（重複の扱い・得点計算・勝敗判定など）は、
   [docs/DESIGN.md](docs/DESIGN.md) の「11. ゲームモード」に、どこを直せばよいかをまとめてあります。
 
